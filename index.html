@@ -126,6 +126,39 @@
             right: 5px;
         }
         /* --- End Collapsible Controls Styling --- */
+
+
+        /* --- Quick Serve Button Styling --- */
+        #quickServeButton {
+            position: fixed; /* Keep it visible */
+            top: 10px;       /* Align vertically with toggle button */
+            /* Position it to the left of the toggle button */
+            /* Estimate: toggle button width (~40-45px) + desired spacing (10px) = 50-55px */
+            right: 55px;
+            z-index: 1000;   /* Same layer as toggle button */
+
+            /* Style like the main serve button */
+            padding: 8px 12px; /* Slightly smaller than main button */
+            font-size: 0.9em;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: background-color 0.3s;
+        }
+
+        #quickServeButton:hover {
+            background-color: #45a049;
+        }
+
+        /* Style for disabled state (IMPORTANT!) */
+        #quickServeButton:disabled {
+            background-color: #cccccc;
+            color: #666666; /* Dim text */
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -225,6 +258,7 @@
 </div>
 
     </div>
+	
 
     <script type="importmap">
         {
@@ -328,6 +362,7 @@ let targetBallCamLookAt = new THREE.Vector3(); // Target lookAt for initial tran
         const horizontalAngleSlider = document.getElementById('horizontalAngle');
         const horizontalAngleValue = document.getElementById('horizontalAngleValue');
         const serveButton = document.getElementById('serveButton');
+        const quickServeButton = document.getElementById('quickServeButton'); // Get the new button
         const enableWindCheckbox = document.getElementById('enableWind');
         const windControlsDiv = document.getElementById('windControls');
         const windStrengthSlider = document.getElementById('windStrength');
@@ -775,8 +810,12 @@ const groundMaterial = new THREE.MeshStandardMaterial({
             if (ballCamActive) { // If reset happens while ball cam was active (unlikely but safe)
                 restoreCamera();
             }
+
+            // ** Enable BOTH buttons **
             serveButton.disabled = false;
             serveButton.textContent = 'Serve!';
+            if (quickServeButton) quickServeButton.disabled = false; // Enable quick button
+			
             trajectoryPoints = [];
             if (trajectoryLine) {
                 scene.remove(trajectoryLine);
@@ -1046,6 +1085,7 @@ const groundMaterial = new THREE.MeshStandardMaterial({
 		        // Keep OrbitControls disabled for now
 		        serveButton.disabled = false; // Re-enable button now
 		        serveButton.textContent = 'Serve!';
+                if (quickServeButton) quickServeButton.disabled = false; // Enable quick button
 		        // Don't restore camera yet
 		    } else {
 		        // Ball cam wasn't used, just ensure controls are enabled and update arrow
@@ -1053,6 +1093,7 @@ const groundMaterial = new THREE.MeshStandardMaterial({
 		        ballCamInUse = false; // Ensure state is clear
 		        serveButton.disabled = false;
 		        serveButton.textContent = 'Serve!';
+                if (quickServeButton) quickServeButton.disabled = false; // Enable quick button
 		        updateArrow(); // Show arrow again
 		    }
 		}
@@ -1134,6 +1175,12 @@ const groundMaterial = new THREE.MeshStandardMaterial({
 
             serveButton.addEventListener('click', startServe);
 
+
+            // ** NEW: Quick Serve Button Listener **
+            if (quickServeButton) { // Check if element exists
+                quickServeButton.addEventListener('click', startServe); // Calls the SAME function
+            }
+
             // Camera Buttons
             camBehindButton.addEventListener('click', () => setCameraPosition('behind'));
             camBaselineSideButton.addEventListener('click', () => setCameraPosition('baselineSide')); // Updated name
@@ -1143,17 +1190,15 @@ const groundMaterial = new THREE.MeshStandardMaterial({
              // Ball cam checkbox doesn't require immediate simulation reset
              // enableBallCamCheckbox.addEventListener('change', handleSettingsChange); // No reset needed on toggle
 			
-             // ** NEW: Add listener for the toggle button **
-			 if (toggleControlsButton && controlsDiv) {
-                const transitionDuration = 350; // Match the CSS transition time in milliseconds
-                const resizeBuffer = 50; // Small extra buffer
-
+            
+            // Toggle Button Listener (Keep as is, with setTimeout fix)
+            if (toggleControlsButton && controlsDiv) {
+                const transitionDuration = 350;
+                const resizeBuffer = 50;
                 toggleControlsButton.addEventListener('click', () => {
                     controlsDiv.classList.toggle('collapsed');
                     const isCollapsed = controlsDiv.classList.contains('collapsed');
                     toggleControlsButton.setAttribute('aria-expanded', !isCollapsed);
-
-                    // ** Call onWindowResize AFTER the transition likely finishes **
                     setTimeout(() => {
                         onWindowResize();
                     }, transitionDuration + resizeBuffer);
@@ -1246,6 +1291,7 @@ function startServe() {
     } else {
         // --- Start Simulation Directly (No Ball Cam) ---
         ballCamInUse = false;
+		serveButton.textContent = 'Simulating...'; // Only change main button text
         startPhysicsSimulation(); // Directly start physics
     }
 }
@@ -1278,6 +1324,9 @@ function startPhysicsSimulation() {
     finalVelocityBeforeImpact.set(0, 0, 0);
 
     isSimulating = true; // ****** PHYSICS STARTS HERE ******
+
+     // ** Ensure BOTH buttons are disabled here too (redundant but safe) **
+     if (quickServeButton) quickServeButton.disabled = true;
     serveButton.disabled = true;
     serveButton.textContent = 'Simulating...';
     if (serveArrow) serveArrow.visible = false;
@@ -1470,6 +1519,13 @@ function startPhysicsSimulation() {
 
 		    const deltaTime = clock.getDelta();
 
+             // --- Button State Management during transitions ---
+             // Ensure buttons remain disabled during transitions
+             if (isTransitioningToBallCam || isTransitioningFromBallCam) {
+                 serveButton.disabled = true;
+                 if (quickServeButton) quickServeButton.disabled = true;
+             }
+			 
 		    // 1. Handle Pre-Serve Ball Cam Transition
 		    if (isTransitioningToBallCam) {
 		        camera.position.lerp(targetBallCamPos, BALL_CAM_TRANSITION_SPEED);
@@ -1554,5 +1610,8 @@ function startPhysicsSimulation() {
 <button id="toggleControlsButton" aria-label="Toggle Settings Panel" aria-expanded="true">
     ⚙️ <!-- Gear Icon (or use text like "Settings") -->
 </button>
+   <!-- NEW Quick Serve Button -->
+   <button id="quickServeButton" aria-label="Serve the ball">Serve</button>
+
 </body>
 </html>
