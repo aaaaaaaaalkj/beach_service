@@ -1,0 +1,1558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Beach Volleyball Serve Simulation</title>
+    <style>
+        body { margin: 0; font-family: sans-serif; background-color: #f0f0f0; display: flex; height: 100vh; overflow: hidden; /* Prevent body scroll */ }
+        #container { flex-grow: 1; position: relative; overflow: hidden; } /* Make canvas container flexible */
+        #controls {
+            width: 360px; /* Slightly wider for better layout */
+            min-width: 320px;
+            padding: 10px 15px; /* Reduced vertical padding */
+            background-color: #ffffff;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+            overflow-y: auto; /* Enable scroll ONLY if needed */
+            border-left: 1px solid #ccc;
+            height: 100%;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column; /* Stack elements vertically */
+        }
+        fieldset {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 8px 10px 10px 10px; /* Adjusted padding */
+            margin-bottom: 10px; /* Reduced margin */
+        }
+        legend { font-weight: bold; padding: 0 5px; font-size: 0.95em; color: #333; }
+        label { display: block; margin-bottom: 3px; /* Reduced margin */ font-weight: bold; font-size: 0.9em; }
+        input[type="range"] { width: calc(100% - 10px); margin-top: -2px; /* Pull closer to label */ }
+        button { padding: 8px 12px; /* Slightly smaller */ margin-top: 5px; cursor: pointer; background-color: #e0e0e0; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9em; }
+        button:hover { background-color: #d5d5d5;}
+        #serveButton {
+            background-color: #4CAF50; color: white; font-size: 1.1em; border: none; border-radius: 5px; width: 100%;
+            padding: 10px;
+            margin-bottom: 10px; /* Reduced margin */
+             margin-top: 5px;
+            transition: background-color 0.3s;
+        }
+        #serveButton:hover { background-color: #45a049; }
+        #serveButton:disabled { background-color: #cccccc; cursor: not-allowed;}
+        #results {
+            margin-top: 10px;
+            background-color: #f5f5f5; /* Lighter background */
+            padding: 12px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        #results h3 { margin: 0 0 8px 0; font-size: 1.1em; text-align: center; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        #results p { margin: 6px 0; font-size: 0.9em; }
+        #results span { font-weight: bold; color: #2a6496; float: right; } /* Align values right */
+        .hidden { display: none; }
+        select, input[type="radio"], input[type="checkbox"] { margin-bottom: 5px;}
+        input[type="radio"] + label { display: inline; font-weight: normal; margin-right: 10px; } /* Inline radio labels */
+        .value-display { font-weight: normal; color: #555; margin-left: 8px; font-size: 0.95em;}
+        #saveLoad {
+            display: grid; /* Use grid */
+            grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); /* Responsive columns */
+            gap: 6px; /* Spacing between buttons */
+            margin-top: 5px;
+        }
+        #saveLoad button {
+            width: 100%; /* Make buttons fill grid cells */
+            padding: 6px 5px;
+            font-size: 0.85em;
+            margin: 0; /* Remove default margin */
+            box-sizing: border-box;
+        }
+        .camera-buttons button { margin-right: 5px; margin-bottom: 5px; } /* Spacing for camera buttons */
+        #ballCamOption label { display: inline; font-weight: normal;} /* Inline ball cam label */
+		        /* ... (Keep all your existing styles) ... */
+
+        /* --- Collapsible Controls Styling --- */
+
+        #toggleControlsButton {
+            position: fixed; /* Keep it visible even when scrolling */
+            top: 10px;
+            right: 10px;     /* Position near the top-right */
+            z-index: 1000;   /* Ensure it's above other elements */
+            padding: 8px 10px;
+            background-color: rgba(0, 0, 0, 0.6); /* Semi-transparent background */
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1.2em;
+            line-height: 1; /* Ensure icon fits well */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: background-color 0.3s, transform 0.3s;
+        }
+
+        #toggleControlsButton:hover {
+            background-color: rgba(0, 0, 0, 0.8);
+            transform: scale(1.05);
+        }
+
+        /* Style for the controls panel itself to enable transition */
+        #controls {
+            /* ... (Keep existing #controls styles like width, min-width, padding etc.) ... */
+            transition: width 0.35s ease-in-out,
+                        min-width 0.35s ease-in-out,
+                        padding 0.35s ease-in-out,
+                        opacity 0.35s ease-in-out; /* Add transition */
+            overflow-x: hidden; /* Prevent horizontal scrollbar during transition */
+        }
+
+
+        /* Styles applied when the panel IS collapsed */
+        #controls.collapsed {
+            width: 0;          /* Collapse width */
+            min-width: 0;      /* Collapse min-width */
+            padding-left: 0;   /* Remove padding */
+            padding-right: 0;
+            opacity: 0;        /* Fade out */
+            overflow-y: hidden;/* Hide vertical scrollbar when collapsed */
+            border-left: none; /* Hide border */
+            /* We keep top/bottom padding briefly visible during transition,
+               then they disappear as width goes to 0 */
+        }
+
+        /* Adjust button position slightly when panel is collapsed */
+        /* This is optional, depends on desired look */
+        #controls.collapsed + #toggleControlsButton {
+             /* Example: Move slightly left if needed */
+            right: 5px;
+        }
+        /* --- End Collapsible Controls Styling --- */
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="controls">
+        <h2>Settings</h2>
+
+        <fieldset>
+             <legend>Serve Basics</legend>
+             <div>
+                 <label style="display: inline;">Gender:</label>
+                 <input type="radio" id="genderMale" name="gender" value="male" checked> <label for="genderMale">Men</label>
+                 <input type="radio" id="genderFemale" name="gender" value="female"> <label for="genderFemale">Women</label>
+             </div>
+             <div>
+                 <label for="launchPosition">Launch Position:</label>
+                 <select id="launchPosition" style="width: 100%;">
+                     <option value="center">Center Baseline</option>
+                     <option value="leftCorner">Left Corner</option>
+                     <option value="rightCorner">Right Corner</option>
+                 </select>
+             </div>
+        </fieldset>
+
+        <fieldset>
+            <legend>Launch Parameters</legend>
+            <div>
+                <label for="launchSpeed">Speed: <span id="launchSpeedValue" class="value-display">15 m/s</span></label>
+                <input type="range" id="launchSpeed" min="5" max="30" value="15" step="0.5">
+            </div>
+            <div>
+                <label for="verticalAngle">Vertical Angle: <span id="verticalAngleValue" class="value-display">20 °</span></label>
+                <input type="range" id="verticalAngle" min="1" max="130" value="20" step="1">
+            </div>
+            <div>
+                <label for="horizontalAngle">Horizontal Angle: <span id="horizontalAngleValue" class="value-display">0 °</span></label>
+                <input type="range" id="horizontalAngle" min="-45" max="45" value="0" step="1">
+                 <span style="font-size: 0.8em; color: #666;"> (- Left / + Right)</span>
+            </div>
+        </fieldset>
+
+        <fieldset>
+            <legend>Environment</legend>
+             <label for="enableWind">
+                 <input type="checkbox" id="enableWind"> Enable Wind
+             </label>
+             <div id="windControls" class="hidden">
+                 <label for="windStrength">Strength: <span id="windStrengthValue" class="value-display">0.5</span></label>
+                 <input type="range" id="windStrength" min="0" max="5" value="0.5" step="0.1">
+                 <label for="windDirection">Direction: <span id="windDirectionValue" class="value-display">0 °</span></label>
+                 <input type="range" id="windDirection" min="0" max="359" value="0" step="1">
+                 <span style="font-size: 0.8em; color: #666;">(0° = To Net, 90° = Right)</span>
+             </div>
+        </fieldset>
+
+        <fieldset>
+            <legend>Camera</legend>
+             <div class="camera-buttons">
+                 <button id="camBehind">Behind Server</button>
+                 <button id="camBaselineSide">Baseline Side</button>
+                 <button id="camCourtSide">Court Side</button> <!-- New Button -->
+                 <button id="camTop">Top View</button>
+             </div>
+             <div id="ballCamOption">
+                 <input type="checkbox" id="enableBallCam">
+                 <label for="enableBallCam">Ball's Eye</label>
+             </div>
+        </fieldset>
+
+
+        <button id="serveButton">Serve!</button>
+
+        <div id="results">
+            <h3>Results</h3>
+            <p>Classification:<span id="resultClassification">-</span></p>
+            <p>Landing Speed:<span id="resultFinalSpeed">- m/s</span></p>
+            <p>Flight Time:<span id="resultFlightTime">- s</span></p>
+            <p>Difficulty:<span id="resultDifficulty">- / 100</span></p>
+        </div>
+
+        <fieldset style="margin-top: auto;"> <!-- Push save/load towards bottom -->
+             <legend>Save/Load Settings</legend>
+             <div id="saveLoad">
+                <!-- Save/Load buttons will be generated here -->
+             </div>
+        </fieldset>
+
+
+<div id="attribution" style="font-size: 0.75em; color: #666; margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee; line-height: 1.4;">
+    <p style="margin: 0;">
+        <strong>Texture Credit:</strong><br>
+        Sand texture "Smooth sand dunes" by the3rdSequence, used under
+        <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>.
+        Source: <a href="https://www.the3rdsequence.com/texturedb/texture/43/smooth+sand+dunes/" target="_blank" rel="noopener noreferrer">the3rdsequence</a>.
+        <br>No changes were made to the original texture.
+    </p>
+</div>
+
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+		import { TextureLoader } from 'three'; // Make sure TextureLoader is imported if not already
+
+        // --- Constants ---
+        const COURT_WIDTH = 8; // meters
+        const COURT_LENGTH = 16; // meters
+        const NET_HEIGHT_MEN = 2.43;
+        const NET_HEIGHT_WOMEN = 2.24;
+        const POLE_HEIGHT = 3.0;
+        const POLE_RADIUS = 0.05;
+        const POLE_DISTANCE = COURT_WIDTH + 1; // Poles slightly outside court
+        const ANTENNA_HEIGHT = 1; // Above net
+        const ANTENNA_RADIUS = 0.01;
+        const BALL_RADIUS = 0.105; // Approximate FIVB radius
+        const BALL_MASS = 0.27; // kg (average)
+        const GRAVITY = 9.81; // m/s^2
+        const AIR_DENSITY = 1.225; // kg/m^3
+        const DRAG_COEFFICIENT = 0.6; // Smooth sphere default
+        const NUM_SAVE_SLOTS = 6; // Increased slightly
+		const NET_BOTTOM_HEIGHT = 1.1; // to be removed
+		const NET_VISUAL_HEIGHT = 1;
+		const NET_BAND_HEIGHT   = 0.07;  // Height (thickness) of the top/bottom white bands (7cm)
+      
+// *** NEW: Net Interaction Constants ***
+        // Increased COR for a less "dead" default bounce
+        const COR_NET_BAND       = 0.4;  // Coefficient of Restitution (Try 0.3 to 0.6)
+        const DAMPING_NET_BAND   = 0.7;  // Velocity damping factor (Try 0.6 to 0.8)
+        // Require a slight upward push for roll-over
+        const MIN_Y_VEL_FOR_ROLL = 0.1;  // Min upward velocity (m/s) (Try 0.05 to 0.2)
+        // How much forward speed is kept on roll-over (fraction of incoming X speed)
+        const ROLL_OVER_FACTOR   = 0.25; // (Try 0.15 to 0.4)
+        // Specific damping factors when a roll-over occurs
+        const ROLL_OVER_Y_DAMP   = 0.6;  // More Y damping during roll? (Try 0.5 to 0.7)
+        const ROLL_OVER_Z_DAMP   = 0.75; // Z damping during roll (Try 0.7 to 0.85)
+
+    
+        // --- Global Variables ---
+        let scene, camera, renderer, controls;
+        let ground, net, poles = [], antennas = [], ball;
+		let netTopBand, netBottomBand; // <<< ADD VARIABLES FOR BANDS
+        let serveArrow, windArrow1, windArrow2;
+        let trajectoryLine = null;
+        let ballPosition = new THREE.Vector3();
+        let ballVelocity = new THREE.Vector3();
+        let ballForces = new THREE.Vector3();
+        let windForce = new THREE.Vector3();
+        let trajectoryPoints = [];
+        let isSimulating = false;
+        let simulationStartTime = 0;
+        let flightTime = 0;
+        let finalVelocityBeforeImpact = new THREE.Vector3();
+
+        let currentNetHeight = NET_HEIGHT_MEN;
+        let currentServePosition = new THREE.Vector3();
+
+		
+        // Ball Cam State
+        let ballCamActive = false;
+        const preBallCamPosition = new THREE.Vector3();
+        const preBallCamTarget = new THREE.Vector3();
+        const ballCamOffset = new THREE.Vector3(0, 0.1, -0.5); // Offset behind the ball (local Z)
+
+
+// Ball Cam State
+let ballCamInUse = false; // Is the ball cam *currently controlling* the 
+
+let isTransitioningToBallCam = false; // State flag for pre-serve transition
+let isWaitingAfterBallCam = false;   // State flag for post-serve delay
+let isTransitioningFromBallCam = false; // State flag for post-delay return transition
+let ballCamEndTime = 0;             // Timestamp when simulation ended for delay calc
+const BALL_CAM_END_DELAY = 1000;    // Delay in milliseconds after landing
+const BALL_CAM_TRANSITION_SPEED = 0.07; // Speed for lerp transitions (adjust for feel)
+let targetBallCamPos = new THREE.Vector3(); // Target position for initial transition
+let targetBallCamLookAt = new THREE.Vector3(); // Target lookAt for initial transition
+
+
+
+        // --- DOM Elements ---
+        const container = document.getElementById('container');
+        const controlsDiv = document.getElementById('controls');
+		const toggleControlsButton = document.getElementById('toggleControlsButton'); // Get the new button
+        const genderMaleRadio = document.getElementById('genderMale');
+        const genderFemaleRadio = document.getElementById('genderFemale');
+        const launchPositionSelect = document.getElementById('launchPosition');
+        const launchSpeedSlider = document.getElementById('launchSpeed');
+        const launchSpeedValue = document.getElementById('launchSpeedValue');
+        const verticalAngleSlider = document.getElementById('verticalAngle');
+        const verticalAngleValue = document.getElementById('verticalAngleValue');
+        const horizontalAngleSlider = document.getElementById('horizontalAngle');
+        const horizontalAngleValue = document.getElementById('horizontalAngleValue');
+        const serveButton = document.getElementById('serveButton');
+        const enableWindCheckbox = document.getElementById('enableWind');
+        const windControlsDiv = document.getElementById('windControls');
+        const windStrengthSlider = document.getElementById('windStrength');
+        const windStrengthValue = document.getElementById('windStrengthValue');
+        const windDirectionSlider = document.getElementById('windDirection');
+        const windDirectionValue = document.getElementById('windDirectionValue');
+        const resultClassification = document.getElementById('resultClassification');
+        const resultFinalSpeed = document.getElementById('resultFinalSpeed');
+        const resultFlightTime = document.getElementById('resultFlightTime');
+        const resultDifficulty = document.getElementById('resultDifficulty');
+        const camBehindButton = document.getElementById('camBehind');
+        const camBaselineSideButton = document.getElementById('camBaselineSide'); // Renamed
+        const camCourtSideButton = document.getElementById('camCourtSide');    // New
+        const camTopButton = document.getElementById('camTop');
+        const enableBallCamCheckbox = document.getElementById('enableBallCam');
+        const saveLoadDiv = document.getElementById('saveLoad');
+
+		const textureLoader = new THREE.TextureLoader();
+
+// Sand Texture Attribution:
+// Name: "Smooth sand dunes" by the3rdSequence
+// Source: https://www.the3rdsequence.com/texturedb/texture/43/smooth+sand+dunes/
+// License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+const sandTexture = textureLoader.load(
+    'sand.jpg',
+    (texture) => {
+        // Success callback: Configure texture properties
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        // Adjust repeat based on your ground size and texture scale
+        // You might need large numbers if the texture covers a small area
+        const groundWidthUnits = COURT_WIDTH * 2.2;
+        const groundLengthUnits = COURT_LENGTH * 1.5;
+        // Example: Repeat the texture every 2 meters
+        texture.repeat.set(groundLengthUnits / 2, groundWidthUnits / 2);
+        texture.colorSpace = THREE.SRGBColorSpace; // Important if using sRGB renderer output
+        texture.needsUpdate = true; // Flag texture update
+        console.log("Sand texture loaded successfully.");
+    },
+    undefined, // Progress callback (optional)
+    (err) => {
+        // Error callback
+        console.error('An error happened loading the sand texture:', err);
+    }
+);
+
+        // --- Initialization ---
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color( 0x87CEEB ); // Sky blue
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Smoother shadows
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            container.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(0, 1, 0);
+
+			// *** ADD THESE LINES TO LIMIT VERTICAL ORBIT ***
+			// Polar angle: 0 is looking straight up, PI/2 (90deg) is horizontal, PI (180deg) is straight down.
+			// We want to allow going slightly below horizontal (90deg) + 20deg = 110deg max.
+			controls.maxPolarAngle = ( 90 + 1 ) * Math.PI / 180; // Approx 110 degrees in radians
+
+			// Optional: You might also want to limit looking straight up slightly to avoid gimbal lock
+			 controls.minPolarAngle = 0.1; // (~6 degrees from pure vertical 'up')
+			// *** END ADDITION ***
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); // Slightly brighter ambient
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.9); // Slightly stronger directional
+            directionalLight.position.set(15, 25, 10); // Adjusted position
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 1;
+            directionalLight.shadow.camera.far = 60; // Increased far plane
+            directionalLight.shadow.camera.left = -COURT_LENGTH;
+            directionalLight.shadow.camera.right = COURT_LENGTH;
+            directionalLight.shadow.camera.top = COURT_WIDTH * 2.5;
+            directionalLight.shadow.camera.bottom = -COURT_WIDTH * 2.5;
+            scene.add(directionalLight);
+            // scene.add( new THREE.CameraHelper( directionalLight.shadow.camera ) ); // Debug shadow camera
+
+            // Create Court Elements
+            createCourt();
+            createBall();
+            createHelpers();
+			
+
+            // Setup UI Listeners
+            setupUIListeners();
+            // ** NEW: Collapse controls on load for small screens **
+			checkScreenSizeAndCollapse();
+
+
+            generateSaveLoadButtons();
+
+            // Initial setup based on default UI values
+            updateNetHeight();
+            updateServePosition();
+            updateArrow();
+            updateWindVisualization();
+            resetResults();
+
+            // Set initial camera position
+            setCameraPosition('behind');
+
+            // Start Animation Loop
+            animate();
+
+            // Handle Resize
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('resize', checkScreenSizeAndCollapse); // Also check size on resize
+        }
+
+        // --- Create Scene Objects ---
+		
+		    // Make sure these constants are defined globally in your script:
+    // const NET_VISUAL_HEIGHT = 1.0; // Example value
+    // const NET_BAND_HEIGHT = 0.07;  // Example value
+    // const ANTENNA_HEIGHT = 1.0;    // Example value
+    // And others like COURT_WIDTH, COURT_LENGTH, POLE_DISTANCE etc.
+
+    // --- Create Scene Objects ---
+    function createCourt() {
+        // Ground (Sand) - Corrected Metalness
+        const groundGeometry = new THREE.PlaneGeometry(COURT_LENGTH * 1.5, COURT_WIDTH * 2.2);
+        
+// Modify groundMaterial to use the texture
+const groundMaterial = new THREE.MeshStandardMaterial({
+    // color: 0xFFFFFF, // Base color influences texture tint. White = no tint.
+                       // You can use a sand color here (e.g., 0xD8C0A8)
+                       // to tint the texture if it's grayscale or needs warming.
+    color: 0xEEDC82,   // Let's try tinting the texture with your original color
+    map: sandTexture, // Apply the loaded texture
+    side: THREE.DoubleSide,
+    roughness: 1,     // Keep high roughness
+    metalness: 0.0,   // Keep non-metallic
+});
+        ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = 0;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Court Lines (using thin boxes for visibility)
+        const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff }); // White lines
+        const LINE_HEIGHT = 0.01; // Make lines slightly embedded
+        const LINE_THICKNESS = 0.05; // Width of the lines
+
+        function createLineBox(width, depth) {
+            const geometry = new THREE.BoxGeometry(width, LINE_HEIGHT, depth);
+            const mesh = new THREE.Mesh(geometry, lineMaterial);
+            mesh.position.y = LINE_HEIGHT / 2;
+            mesh.receiveShadow = true;
+            return mesh;
+        }
+
+        // Sidelines (Corrected positions)
+        const sideLineL = createLineBox(COURT_LENGTH, LINE_THICKNESS);
+        sideLineL.position.set(0, LINE_HEIGHT / 2, COURT_WIDTH / 2 - LINE_THICKNESS / 2);
+        scene.add(sideLineL);
+        const sideLineR = createLineBox(COURT_LENGTH, LINE_THICKNESS);
+        sideLineR.position.set(0, LINE_HEIGHT / 2, -COURT_WIDTH / 2 + LINE_THICKNESS / 2);
+        scene.add(sideLineR);
+
+        // Baselines (Corrected positions)
+        const baseLineBack = createLineBox(LINE_THICKNESS, COURT_WIDTH);
+        baseLineBack.position.set(-COURT_LENGTH / 2 + LINE_THICKNESS / 2, LINE_HEIGHT / 2, 0);
+        scene.add(baseLineBack);
+        const baseLineFront = createLineBox(LINE_THICKNESS, COURT_WIDTH);
+        baseLineFront.position.set(COURT_LENGTH / 2 - LINE_THICKNESS / 2, LINE_HEIGHT / 2, 0);
+        scene.add(baseLineFront);
+
+        // Center line (under net)
+        const centerLine = createLineBox(LINE_THICKNESS, COURT_WIDTH);
+        centerLine.position.set(0, LINE_HEIGHT / 2, 0);
+        scene.add(centerLine);
+
+        // Poles
+        const poleGeometry = new THREE.CylinderGeometry(POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16);
+        const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.6, roughness: 0.5 });
+        poles[0] = new THREE.Mesh(poleGeometry.clone(), poleMaterial); // Use clone for safety
+        poles[0].position.set(0, POLE_HEIGHT / 2, POLE_DISTANCE / 2);
+        poles[0].castShadow = true;
+        scene.add(poles[0]);
+        poles[1] = new THREE.Mesh(poleGeometry, poleMaterial); // Can reuse geometry here
+        poles[1].position.set(0, POLE_HEIGHT / 2, -POLE_DISTANCE / 2);
+        poles[1].castShadow = true;
+        scene.add(poles[1]);
+
+        // Net
+        const netVisualWidth = POLE_DISTANCE - POLE_RADIUS * 2;
+        const netGeometry = new THREE.PlaneGeometry(netVisualWidth, NET_VISUAL_HEIGHT);
+        const netMaterial = new THREE.MeshStandardMaterial({
+            color: 0xf0f0f0, side: THREE.DoubleSide, transparent: true,
+            opacity: 0.7, alphaTest: 0.1
+        });
+        net = new THREE.Mesh(netGeometry, netMaterial);
+        // Position net center so TOP edge is at currentNetHeight
+        net.position.set(0, currentNetHeight - (NET_VISUAL_HEIGHT / 2), 0);
+        net.rotation.y = Math.PI / 2;
+        net.castShadow = false;
+        net.receiveShadow = false; // Main net likely doesn't need receiveShadow
+        scene.add(net);
+
+        // --- ADD NET BANDS with Y_OFFSET ---
+        const bandGeometry = new THREE.PlaneGeometry(netVisualWidth, NET_BAND_HEIGHT);
+        const Y_OFFSET = 0.001; // Tiny vertical offset for separation
+
+       
+		const topBandMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffff, side: THREE.DoubleSide, roughness: 0.8,
+                metalness: 0.0, emissive: 0xAAAAAA, // Your brightness
+                // *** Polygon Offset Settings ***
+                polygonOffset: true,
+                polygonOffsetFactor: -1.0, // Negative value pushes towards camera
+                polygonOffsetUnits: -1.0   // Units based on depth buffer resolution
+            });
+            const bottomBandMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffff, side: THREE.DoubleSide, roughness: 0.8,
+                metalness: 0.0, emissive: 0xAAAAAA, // Match top band
+                // *** Polygon Offset Settings ***
+                polygonOffset: true,
+                polygonOffsetFactor: -1.0, // Apply same offset
+                polygonOffsetUnits: -1.0
+            });
+        // Top Band - Position slightly LOWER than top edge
+        netTopBand = new THREE.Mesh(bandGeometry.clone(), topBandMaterial);
+        const topBandCenterY = currentNetHeight - (NET_BAND_HEIGHT / 2) - Y_OFFSET; // Apply Y offset down
+        netTopBand.position.set(0, topBandCenterY, 0); // X = 0
+        netTopBand.rotation.y = Math.PI / 2;
+        netTopBand.castShadow = true;
+        netTopBand.receiveShadow = true;
+        scene.add(netTopBand);
+
+        // Bottom Band - Position slightly HIGHER than bottom edge
+        netBottomBand = new THREE.Mesh(bandGeometry.clone(), bottomBandMaterial); // Use clone
+        const bottomEdgeY = currentNetHeight - NET_VISUAL_HEIGHT;
+        const bottomBandCenterY = bottomEdgeY + (NET_BAND_HEIGHT / 2) + Y_OFFSET; // Apply Y offset up
+        netBottomBand.position.set(0, bottomBandCenterY, 0); // X = 0
+        netBottomBand.rotation.y = Math.PI / 2;
+        netBottomBand.castShadow = true;
+        netBottomBand.receiveShadow = true;
+        scene.add(netBottomBand);
+        // --- END NET BANDS ---
+
+        // Antennas - Span from visual net bottom to required height above net top
+        const netBottomY_Antenna = currentNetHeight - NET_VISUAL_HEIGHT; // Use a distinct variable name if needed
+        const antennaTopY = currentNetHeight + ANTENNA_HEIGHT;
+        const totalVisualAntennaLength = antennaTopY - netBottomY_Antenna;
+        const antennaCenterY = netBottomY_Antenna + (totalVisualAntennaLength / 2);
+
+        const antennaGeometry = new THREE.CylinderGeometry(ANTENNA_RADIUS, ANTENNA_RADIUS, totalVisualAntennaLength, 16);
+        const antennaMaterial = new THREE.MeshStandardMaterial({ color: 0xff3030, roughness: 0.8 });
+
+        antennas[0] = new THREE.Mesh(antennaGeometry.clone(), antennaMaterial);
+        antennas[0].position.set(0, antennaCenterY, COURT_WIDTH / 2);
+        antennas[0].castShadow = true;
+        scene.add(antennas[0]);
+
+        antennas[1] = new THREE.Mesh(antennaGeometry.clone(), antennaMaterial); // Use clone
+        antennas[1].position.set(0, antennaCenterY, -COURT_WIDTH / 2);
+        antennas[1].castShadow = true;
+        scene.add(antennas[1]);
+    }
+
+	function updateNetHeight() {
+            currentNetHeight = genderMaleRadio.checked ? NET_HEIGHT_MEN : NET_HEIGHT_WOMEN;
+
+            if (net && netTopBand && netBottomBand && antennas.length === 2) {
+                // Update net geometry and position
+                if (net.geometry) net.geometry.dispose();
+                const netVisualWidth = POLE_DISTANCE - POLE_RADIUS * 2;
+                net.geometry = new THREE.PlaneGeometry(netVisualWidth, NET_VISUAL_HEIGHT);
+                net.position.y = currentNetHeight - (NET_VISUAL_HEIGHT / 2);
+                net.rotation.y = Math.PI / 2;
+
+                // --- UPDATE NET BAND POSITIONS (No Y_OFFSET) ---
+                // const Y_OFFSET = 0.001; // REMOVE THIS
+                const topBandCenterY = currentNetHeight - (NET_BAND_HEIGHT / 2); // Position exactly at top
+                netTopBand.position.y = topBandCenterY;
+
+                const bottomEdgeY = currentNetHeight - NET_VISUAL_HEIGHT;
+                const bottomBandCenterY = bottomEdgeY + (NET_BAND_HEIGHT / 2); // Position exactly at bottom
+                netBottomBand.position.y = bottomBandCenterY;
+                // --- END NET BAND UPDATE ---
+
+                // Update antenna geometry and position (as before)
+                antennas.forEach((antenna, index) => {
+                    if (antenna.geometry) antenna.geometry.dispose();
+                    const netBottomY_Antenna = currentNetHeight - NET_VISUAL_HEIGHT;
+                    const antennaTopY = currentNetHeight + ANTENNA_HEIGHT;
+                    const totalVisualAntennaLength = antennaTopY - netBottomY_Antenna;
+                    const antennaCenterY = netBottomY_Antenna + (totalVisualAntennaLength / 2);
+                    antenna.geometry = new THREE.CylinderGeometry(ANTENNA_RADIUS, ANTENNA_RADIUS, totalVisualAntennaLength, 16);
+                    const antennaZ = (index === 0 ? COURT_WIDTH / 2 : -COURT_WIDTH / 2);
+                    antenna.position.set(0, antennaCenterY, antennaZ);
+                });
+            }
+        }
+
+
+		function createBall() {
+            const ballGeometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 16);
+            const ballMaterial = new THREE.MeshStandardMaterial({ color: 0xffff4d, roughness: 0.6, metalness: 0.1 }); // Yellow ball, slightly less rough
+            ball = new THREE.Mesh(ballGeometry, ballMaterial);
+            ball.castShadow = true;
+            ball.receiveShadow = false;
+            scene.add(ball);
+            resetBallPosition();
+        }
+
+        function createHelpers() {
+            // Serve Arrow
+            serveArrow = new THREE.ArrowHelper( new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), 1, 0x00dd00, 0.3, 0.15 ); // Brighter green
+            scene.add(serveArrow);
+
+            // Wind Arrows
+            const windArrowY = POLE_HEIGHT + 0.4; // Slightly higher
+            windArrow1 = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, windArrowY, POLE_DISTANCE / 2 + 0.5), 1, 0x4169E1, 0.5, 0.3); // Royal Blue
+            windArrow2 = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, windArrowY, -POLE_DISTANCE / 2 - 0.5), 1, 0x4169E1, 0.5, 0.3);
+            scene.add(windArrow1);
+            scene.add(windArrow2);
+            updateWindVisualization();
+        }
+       
+		
+		function updateServePosition() {
+            const position = launchPositionSelect.value;
+            // Server's baseline is at -COURT_LENGTH / 2
+            const serveX = -COURT_LENGTH / 2 - 0.8; // Slightly closer behind baseline
+			const serveY = genderMaleRadio.checked ? 2.1 : 1.9;
+
+            // Coordinate System Reminder (Looking from Server towards Net):
+            // +X: Forward (towards Net)
+            // +Y: Up
+            // +Z: Right (Server's Right is Negative Z, Server's Left is Positive Z)
+            switch (position) {
+		        case 'leftCorner': // User selected "Left Corner" - This is server's LEFT, which is NEGATIVE Z
+		            // Set Z to a NEGATIVE value
+		            currentServePosition.set(serveX, serveY, -COURT_WIDTH / 2 + 0.5); // WAS: COURT_WIDTH / 2 - 0.5
+		            break;
+
+		        case 'rightCorner': // User selected "Right Corner" - This is server's RIGHT, which is POSITIVE Z
+		            // Set Z to a POSITIVE value
+		            currentServePosition.set(serveX, serveY, COURT_WIDTH / 2 - 0.5); // WAS: -COURT_WIDTH / 2 + 0.5
+		            break;
+
+		        case 'center':
+		        default:
+		            currentServePosition.set(serveX, serveY, 0);
+		            break;
+            }
+            // If not simulating, reset simulation state to reflect new position
+			if (!isSimulating) {
+         resetBallPosition(); // Reset ball position directly
+         updateArrow();       // Update arrow position/direction
+    }
+        }
+
+        function updateArrow() {
+            if (!serveArrow || isSimulating || ballCamActive) { // Hide arrow if simulating or in ball cam
+                 if(serveArrow) serveArrow.visible = false;
+                 return;
+            }
+
+            const speed  =  parseFloat(launchSpeedSlider.value);
+            const vAngle =  parseFloat(verticalAngleSlider.value) * Math.PI / 180;
+            const hAngle = -parseFloat(horizontalAngleSlider.value) * Math.PI / 180;
+
+            const dir = new THREE.Vector3(1, 0, 0);
+            dir.applyAxisAngle(new THREE.Vector3(0, 0, 1), vAngle); // Vertical rotation (around relative Z)
+            dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), hAngle); // Horizontal rotation (around world Y)
+
+            serveArrow.position.copy(currentServePosition);
+            serveArrow.setDirection(dir.normalize());
+            const arrowScale = Math.max(0.5, speed / 8); // Adjust scaling factor
+            serveArrow.setLength(arrowScale, 0.3 * arrowScale, 0.15 * arrowScale);
+            serveArrow.visible = true;
+        }
+
+         function updateWindVisualization() {
+            const enabled = enableWindCheckbox.checked;
+            windControlsDiv.classList.toggle('hidden', !enabled);
+            windArrow1.visible = enabled;
+            windArrow2.visible = enabled;
+
+            if (enabled && windArrow1) {
+                const strength = parseFloat(windStrengthSlider.value);
+                const directionDegrees = parseFloat(windDirectionSlider.value);
+                const directionRadians = directionDegrees * Math.PI / 180;
+
+                const windDirVector = new THREE.Vector3(Math.cos(directionRadians), 0, Math.sin(directionRadians));
+
+                const arrowLength = Math.max(0.5, strength * 0.5); // Adjusted scaling
+                const arrowHeadLength = Math.min(0.5, arrowLength * 0.4);
+                const arrowHeadWidth = Math.min(0.3, arrowLength * 0.3);
+
+                windArrow1.setDirection(windDirVector);
+                windArrow1.setLength(arrowLength, arrowHeadLength, arrowHeadWidth);
+                windArrow2.setDirection(windDirVector);
+                windArrow2.setLength(arrowLength, arrowHeadLength, arrowHeadWidth);
+
+                const windForceMagnitude = strength * 0.6; // Adjusted wind effect scale
+                windForce.copy(windDirVector).multiplyScalar(windForceMagnitude);
+
+            } else {
+                windForce.set(0, 0, 0);
+            }
+             // ---- REMOVE THIS BLOCK ----
+    // // Apply changes and reset if not simulating
+    // if (!isSimulating) {
+    //     // handleSettingsChange(); // <--- REMOVE THIS RECURSIVE CALL
+    // }
+    // ---- END REMOVAL ----
+	if (!isSimulating) {
+         updateArrow(); // Update arrow might be needed if wind is considered visually? Or rely on handleSettingsChange calling it. Let's rely on handleSettingsChange.
+    }
+        }
+
+        function resetBallPosition() {
+            ballPosition.copy(currentServePosition);
+            ballVelocity.set(0, 0, 0);
+            if(ball) ball.position.copy(ballPosition);
+        }
+
+        function resetSimulation() {
+            isSimulating = false;
+            if (ballCamActive) { // If reset happens while ball cam was active (unlikely but safe)
+                restoreCamera();
+            }
+            serveButton.disabled = false;
+            serveButton.textContent = 'Serve!';
+            trajectoryPoints = [];
+            if (trajectoryLine) {
+                scene.remove(trajectoryLine);
+                trajectoryLine.geometry.dispose();
+                trajectoryLine.material.dispose();
+                trajectoryLine = null;
+            }
+            resetBallPosition();
+            updateArrow();
+            resetResults();
+        }
+
+         function resetResults() {
+            resultClassification.textContent = '-';
+            resultFinalSpeed.textContent = '- m/s';
+            resultFlightTime.textContent = '- s';
+            resultDifficulty.textContent = '- / 100';
+         }
+
+        // --- Physics Simulation ---
+        function calculateForces(position, velocity) {
+            ballForces.set(0, 0, 0);
+
+            // 1. Gravity
+            ballForces.y += -GRAVITY * BALL_MASS;
+
+            // 2. Air Drag
+            const speedSq = velocity.lengthSq();
+            if (speedSq > 0.001) {
+                const speed = Math.sqrt(speedSq);
+                const crossSectionalArea = Math.PI * BALL_RADIUS * BALL_RADIUS;
+                const dragMagnitude = 0.5 * AIR_DENSITY * DRAG_COEFFICIENT * crossSectionalArea * speedSq;
+                const dragForce = velocity.clone().normalize().multiplyScalar(-dragMagnitude);
+                ballForces.add(dragForce);
+            }
+
+            // 3. Wind Force
+             if (enableWindCheckbox.checked) {
+                ballForces.add(windForce);
+             }
+
+            return ballForces;
+        }
+
+        function updatePhysics(deltaTime) {
+            if (!isSimulating || !ball) return;
+
+            // Clamp deltaTime to avoid large jumps if performance dips
+            const dt = Math.min(deltaTime, 0.05); // Max step 50ms (20fps)
+
+            const forces = calculateForces(ballPosition, ballVelocity);
+            const acceleration = forces.divideScalar(BALL_MASS); // Modifies 'forces' vector
+            ballVelocity.add(acceleration.multiplyScalar(dt));
+            ballPosition.add(ballVelocity.clone().multiplyScalar(dt));
+            ball.position.copy(ballPosition);
+
+            trajectoryPoints.push(ballPosition.clone());
+            flightTime = (performance.now() - simulationStartTime) / 1000;
+            finalVelocityBeforeImpact.copy(ballVelocity);
+
+            checkCollisions();
+        }
+        // --- Collision Detection ---
+        function checkCollisions() {
+             if (!ball || !isSimulating) return; // Also check if simulating
+             const ballY = ballPosition.y;
+             const ballX = ballPosition.x;
+             const ballZ = ballPosition.z;
+
+             // 1. Ground Collision
+             if (ballY <= BALL_RADIUS) {
+                 ballPosition.y = BALL_RADIUS;
+                 ball.position.y = BALL_RADIUS;
+                 stopSimulation(classifyGroundHit());
+                 return;
+             }
+
+             // 2. Net/Antenna Plane Crossing Logic
+             const prevX = ballPosition.x - ballVelocity.x * (1/60.0); // Estimate previous X (assuming ~60fps physics update)
+             const crossesNetPlane = (prevX <= -BALL_RADIUS && ballX > -BALL_RADIUS); // Check crossing near x=0, accounting for radius
+
+             if (crossesNetPlane) {
+                 const ballCenterAtNetPlaneY = ballY; // Y position when X is ~0
+                 const ballCenterAtNetPlaneZ = ballZ; // Z position when X is ~0
+
+                 const topBandBottomY = currentNetHeight - NET_BAND_HEIGHT;
+                 const topBandTopY = currentNetHeight;
+
+                 // A: Check Antenna Collision FIRST (Highest priority at the net line)
+                 const antennaTopY = currentNetHeight + ANTENNA_HEIGHT;
+                 const hitAntenna0 = Math.abs(ballCenterAtNetPlaneZ - (COURT_WIDTH / 2)) < BALL_RADIUS + ANTENNA_RADIUS && ballCenterAtNetPlaneY < antennaTopY + BALL_RADIUS;
+                 const hitAntenna1 = Math.abs(ballCenterAtNetPlaneZ - (-COURT_WIDTH / 2)) < BALL_RADIUS + ANTENNA_RADIUS && ballCenterAtNetPlaneY < antennaTopY + BALL_RADIUS;
+                 if (hitAntenna0 || hitAntenna1) {
+                     stopSimulation("Antenna Hit");
+                     return;
+                 }
+
+                 // B: Check for hitting the Top Band
+                 // Ball might hit the band if its center is between (band_bottom - radius) and (band_top + radius)
+                 if( ballCenterAtNetPlaneY > topBandBottomY - BALL_RADIUS &&
+                     ballCenterAtNetPlaneY < topBandTopY + BALL_RADIUS &&
+                     Math.abs(ballCenterAtNetPlaneZ) < COURT_WIDTH / 2) { // Check within court width (not hitting antenna post area implicitly)
+
+                     handleTopBandCollision(); // NEW function handles the interaction
+                     return; // Don't stop simulation, let it continue with new velocity
+                 }
+
+                 // C: Check for hitting the Main Net (Below the top band)
+                 if (ballCenterAtNetPlaneY <= topBandBottomY - BALL_RADIUS && // Below band (minus radius)
+                     ballCenterAtNetPlaneY > BALL_RADIUS && // Above ground
+                     Math.abs(ballCenterAtNetPlaneZ) < COURT_WIDTH / 2) { // Within court width
+
+                     stopSimulation("Net Hit (Mesh)"); // Stop sim for hitting lower net part
+                     return;
+                 }
+
+                 // D: Check if Went Wide (Outside court width, but didn't hit antenna)
+                 // This check is implicitly handled if it didn't hit Antenna/Band/Mesh above
+                 // and is still crossing the net plane. If it's outside COURT_WIDTH/2 here, it's wide.
+                  if (Math.abs(ballCenterAtNetPlaneZ) >= COURT_WIDTH / 2 + BALL_RADIUS) { // Check strictly outside court boundaries (+radius)
+                     stopSimulation("Out (Wide at Net)");
+                     return;
+                 }
+
+                 // E: Ball went over the net and antennas successfully (no collision detected at the plane)
+                 // No action needed here, simulation continues.
+
+             } // End if crossesNetPlane
+        }
+		        // *** Make sure these constants are defined globally near the top ***
+        // const COR_NET_BAND       = 0.4;  // Coefficient of Restitution (Try 0.3 to 0.6)
+        // const DAMPING_NET_BAND   = 0.7;  // Velocity damping factor (Try 0.6 to 0.8)
+        // const MIN_Y_VEL_FOR_ROLL = 0.1;  // Min upward velocity (m/s) (Try 0.05 to 0.2)
+        // const ROLL_OVER_FACTOR   = 0.25; // Forward speed retained on roll (Try 0.15 to 0.4)
+        // const ROLL_OVER_Y_DAMP   = 0.6;  // Y damping during roll (Try 0.5 to 0.7)
+        // const ROLL_OVER_Z_DAMP   = 0.75; // Z damping during roll (Try 0.7 to 0.85)
+        // const BALL_RADIUS        = 0.105; // Ensure this is defined
+        // *** Make sure these constants are defined globally near the top ***
+        // const COR_NET_BAND       = 0.4;  // Bounce restitution
+        // const DAMPING_NET_BAND   = 0.7;  // Bounce damping
+        // const MIN_Y_VEL_FOR_ROLL = 0.1;  // Min upward velocity for roll consideration
+        // const ROLL_OVER_FACTOR   = 0.25; // Roll-over forward speed fraction
+        // const ROLL_OVER_Y_DAMP   = 0.6;  // Roll-over Y damping
+        // const ROLL_OVER_Z_DAMP   = 0.75; // Roll-over Z damping
+        // const BALL_RADIUS        = 0.105;
+
+        // *** NEW: Interpolation Constant ***
+        // Height range over which to transition from bounce to roll-over physics.
+        // Relative to the critical height (netHeight - ballRadius).
+        // Make it roughly 10-20% of the ball's diameter for a smooth effect.
+        const NET_COLLISION_TRANSITION_HEIGHT = BALL_RADIUS * 0.1; // e.g., ~3cm zone
+        // *** Make sure these constants are defined globally near the top ***
+        // const COR_NET_BAND       = 0.4;  // Bounce restitution
+        // const DAMPING_NET_BAND   = 0.7;  // Bounce damping
+        // // const MIN_Y_VEL_FOR_ROLL = 0.1; // REMOVED - No longer needed for the decision
+        // const ROLL_OVER_FACTOR   = 0.25; // Roll-over forward speed fraction
+        // const ROLL_OVER_Y_DAMP   = 0.6;  // Roll-over Y damping
+        // const ROLL_OVER_Z_DAMP   = 0.75; // Roll-over Z damping
+        // const BALL_RADIUS        = 0.105;
+        // const NET_COLLISION_TRANSITION_HEIGHT = BALL_RADIUS * 0.3; // Interpolation zone
+
+        function handleTopBandCollision() {
+            if (!isSimulating) return;
+			console.log( 'handle top band collision' );
+
+            const incomingVelX = ballVelocity.x;
+            const incomingVelY = ballVelocity.y;
+            const incomingVelZ = ballVelocity.z;
+
+            // console.log(`Top Band Hit! Incoming Vel: X=${incomingVelX.toFixed(3)}, Y=${incomingVelY.toFixed(3)}, BallY: ${ballPosition.y.toFixed(3)}`);
+
+            // 1. Position Correction
+            ballPosition.x = -BALL_RADIUS * 0.1;
+
+            // 2. Define Critical Height for Roll-over consideration
+            //    (Y-level where ball center means bottom of ball is at net top)
+            const criticalRollHeight = currentNetHeight - BALL_RADIUS;
+
+            // 3. Calculate Potential Outcome Velocities (Bounce vs Roll)
+            const bounceVel = new THREE.Vector3(
+                incomingVelX * -COR_NET_BAND,
+                incomingVelY * DAMPING_NET_BAND,
+                incomingVelZ * DAMPING_NET_BAND
+            );
+            const rollVel = new THREE.Vector3(
+                Math.abs(incomingVelX) * ROLL_OVER_FACTOR,
+                incomingVelY * ROLL_OVER_Y_DAMP, // Still use incomingVelY here for damping
+                incomingVelZ * ROLL_OVER_Z_DAMP
+            );
+
+            // 4. Determine Final Velocity using Interpolation based *only on height*
+
+            let finalVelocity = new THREE.Vector3();
+
+            // Define the transition zone boundaries relative to the critical height
+            const transitionBottom = criticalRollHeight - (NET_COLLISION_TRANSITION_HEIGHT / 2);
+            const transitionTop = criticalRollHeight + (NET_COLLISION_TRANSITION_HEIGHT / 2);
+
+            // --- Simplified Height-Based Decision ---
+            if (ballPosition.y <= transitionBottom) {
+                // Clearly below the transition zone: Pure Bounce
+                finalVelocity.copy(bounceVel);
+                // console.log(`   -> Outcome: Bounce (Below Zone: y=${ballPosition.y.toFixed(3)} <= ${transitionBottom.toFixed(3)})`);
+
+            } else if (ballPosition.y >= transitionTop) {
+                // Clearly above the transition zone: Pure Roll-Over
+                finalVelocity.copy(rollVel);
+                // console.log(`   -> Outcome: RollOver (Above Zone: y=${ballPosition.y.toFixed(3)} >= ${transitionTop.toFixed(3)})`);
+
+            } else {
+                // WITHIN the transition zone: Interpolate!
+                // Calculate factor (0 at bottom, 1 at top of zone) based on relative height
+                const interpolationFactor = (ballPosition.y - transitionBottom) / NET_COLLISION_TRANSITION_HEIGHT;
+                finalVelocity.lerpVectors(bounceVel, rollVel, interpolationFactor); // Linearly interpolate
+                // console.log(`   -> Outcome: Interpolating (Factor: ${interpolationFactor.toFixed(3)})`);
+            }
+            // --- End Simplified Decision ---
+
+
+            // 5. Apply the calculated final velocity
+            ballVelocity.copy(finalVelocity);
+            // console.log(`   -> Final Vel: X=${ballVelocity.x.toFixed(3)}, Y=${ballVelocity.y.toFixed(3)}, Z=${ballVelocity.z.toFixed(3)}`);
+
+            // 6. Update Mesh Position
+            if (ball) {
+                 ball.position.copy(ballPosition);
+            }
+
+            // 7. Add Trajectory Point
+            trajectoryPoints.push(ballPosition.clone());
+        }
+
+		function classifyGroundHit() {
+             const ballX = ballPosition.x;
+             const ballZ = ballPosition.z;
+
+             if (ballX <= 0) { // Server's side
+                 return "Didn't Cross Net";
+             } else { // Opponent's side
+                 const isLong = ballX > (COURT_LENGTH / 2) + BALL_RADIUS; // Account for ball radius landing outside line
+                 const isWide = Math.abs(ballZ) > (COURT_WIDTH / 2) + BALL_RADIUS; // Account for ball radius landing outside line
+
+                 if (isLong && isWide) return "Out (Long & Wide)";
+                 if (isLong) return "Out (Long)";
+                 if (isWide) return "Out (Wide)";
+                 return "In"; // If not out, it's in
+             }
+         }
+		 function stopSimulation(reason) {
+		    if (!isSimulating) return; // Avoid double stop
+
+		    isSimulating = false; // ****** PHYSICS STOPS HERE ******
+
+		    // Final calculations and display (do this regardless of camera)
+		    resultClassification.textContent = reason;
+		    const finalSpeed = finalVelocityBeforeImpact.length();
+		    resultFinalSpeed.textContent = `${finalSpeed.toFixed(1)} m/s`;
+		    resultFlightTime.textContent = `${flightTime.toFixed(2)} s`;
+		    resultDifficulty.textContent = `${calculateDifficultyScore(finalSpeed, flightTime, ballPosition, reason).toFixed(0)} / 100`;
+		    drawTrajectory();
+
+		    // Handle Camera based on whether Ball Cam was used for this serve
+		    if (ballCamInUse) {
+		        // Stay in ball cam view, start the delay timer
+		        isWaitingAfterBallCam = true;
+		        ballCamEndTime = performance.now();
+		        // Keep OrbitControls disabled for now
+		        serveButton.disabled = false; // Re-enable button now
+		        serveButton.textContent = 'Serve!';
+		        // Don't restore camera yet
+		    } else {
+		        // Ball cam wasn't used, just ensure controls are enabled and update arrow
+		        if (controls) controls.enabled = true;
+		        ballCamInUse = false; // Ensure state is clear
+		        serveButton.disabled = false;
+		        serveButton.textContent = 'Serve!';
+		        updateArrow(); // Show arrow again
+		    }
+		}
+        // --- Difficulty Score ---
+        function calculateDifficultyScore(speed, time, landingPos, reason) {
+             if (reason !== 'In') return 0;
+
+              const targetZoneRadius = 1.8; // Slightly larger target zones
+              const targetZones = [
+                  new THREE.Vector3(COURT_LENGTH * 0.4, 0, COURT_WIDTH * 0.4),  // Deep right corner area (opponent perspective)
+                  new THREE.Vector3(COURT_LENGTH * 0.4, 0, -COURT_WIDTH * 0.4), // Deep left corner area
+                  // new THREE.Vector3(COURT_LENGTH * 0.15, 0, 0) // Short middle
+              ];
+
+              let minDistanceToTargetCenter = Infinity;
+              const landingXZ = new THREE.Vector3(landingPos.x, 0, landingPos.z);
+              targetZones.forEach(zoneCenter => {
+                  const dist = landingXZ.distanceTo(zoneCenter);
+                  minDistanceToTargetCenter = Math.min(minDistanceToTargetCenter, dist);
+              });
+
+             const speedScore = Math.max(0, Math.min(1, (speed - 10) / (28 - 10))); // Cap effective speed around 28 m/s
+             const timeScore = Math.max(0, Math.min(1, (1.8 - time) / (1.8 - 0.6))); // Effective time range 0.6s - 1.8s
+             const positionScore = Math.max(0, Math.min(1, (4.5 - Math.max(0, minDistanceToTargetCenter - targetZoneRadius/2)) / 4.5)); // Higher score closer to target zone edge
+
+             const weightSpeed = 0.45; // Increased weight for speed
+             const weightTime = 0.25;
+             const weightPosition = 0.30;
+
+             const rawScore = (speedScore * weightSpeed) + (timeScore * weightTime) + (positionScore * weightPosition);
+             return Math.round(rawScore * 100);
+        }
+
+
+        // --- Trajectory Visualization ---
+        function drawTrajectory() {
+            if (trajectoryLine) {
+                scene.remove(trajectoryLine);
+                trajectoryLine.geometry.dispose();
+                trajectoryLine.material.dispose();
+                trajectoryLine = null;
+            }
+            if (trajectoryPoints.length < 2) return;
+
+            const material = new THREE.LineBasicMaterial({ color: 0xe60000, linewidth: 2 }); // Brighter red
+            const geometry = new THREE.BufferGeometry().setFromPoints(trajectoryPoints);
+            trajectoryLine = new THREE.Line(geometry, material);
+            scene.add(trajectoryLine);
+        }
+
+        // --- Event Handlers ---
+        function setupUIListeners() {
+            genderMaleRadio.addEventListener('change', handleSettingsChange);
+            genderFemaleRadio.addEventListener('change', handleSettingsChange);
+            launchPositionSelect.addEventListener('change', handleSettingsChange);
+
+            launchSpeedSlider.addEventListener('input', () => {
+                launchSpeedValue.textContent = `${parseFloat(launchSpeedSlider.value).toFixed(1)} m/s`;
+                handleSettingsChange(); // Update arrow only, don't reset sim fully
+            });
+            verticalAngleSlider.addEventListener('input', () => {
+                verticalAngleValue.textContent = `${verticalAngleSlider.value} °`;
+                 handleSettingsChange();
+            });
+            horizontalAngleSlider.addEventListener('input', () => {
+                horizontalAngleValue.textContent = `${horizontalAngleSlider.value} °`;
+                 handleSettingsChange();
+            });
+
+             enableWindCheckbox.addEventListener('change', handleSettingsChange);
+             windStrengthSlider.addEventListener('input', () => {
+                windStrengthValue.textContent = parseFloat(windStrengthSlider.value).toFixed(1);
+                handleSettingsChange(); // Update wind viz/force only
+            });
+             windDirectionSlider.addEventListener('input', () => {
+                windDirectionValue.textContent = `${windDirectionSlider.value} °`;
+                handleSettingsChange();
+            });
+
+            serveButton.addEventListener('click', startServe);
+
+            // Camera Buttons
+            camBehindButton.addEventListener('click', () => setCameraPosition('behind'));
+            camBaselineSideButton.addEventListener('click', () => setCameraPosition('baselineSide')); // Updated name
+            camCourtSideButton.addEventListener('click', () => setCameraPosition('courtSide'));     // New button
+            camTopButton.addEventListener('click', () => setCameraPosition('top'));
+
+             // Ball cam checkbox doesn't require immediate simulation reset
+             // enableBallCamCheckbox.addEventListener('change', handleSettingsChange); // No reset needed on toggle
+			
+             // ** NEW: Add listener for the toggle button **
+			 if (toggleControlsButton && controlsDiv) {
+                const transitionDuration = 350; // Match the CSS transition time in milliseconds
+                const resizeBuffer = 50; // Small extra buffer
+
+                toggleControlsButton.addEventListener('click', () => {
+                    controlsDiv.classList.toggle('collapsed');
+                    const isCollapsed = controlsDiv.classList.contains('collapsed');
+                    toggleControlsButton.setAttribute('aria-expanded', !isCollapsed);
+
+                    // ** Call onWindowResize AFTER the transition likely finishes **
+                    setTimeout(() => {
+                        onWindowResize();
+                    }, transitionDuration + resizeBuffer);
+                });
+            } else {
+                 console.error("Could not find toggle button or controls panel for listeners.");
+            }
+        }
+        // ** NEW: Function to check screen size **
+        function checkScreenSizeAndCollapse() {
+            const mobileBreakpoint = 768; // Adjust this value as needed (pixels)
+            let stateChanged = false; // Flag to see if we toggled the class
+
+            if (window.innerWidth < mobileBreakpoint) {
+                if (!controlsDiv.classList.contains('collapsed')) {
+                    controlsDiv.classList.add('collapsed');
+                    toggleControlsButton.setAttribute('aria-expanded', 'false');
+                    stateChanged = true; // State changed
+                }
+            } else {
+                 // Optional: Automatically expand if screen becomes larger
+                 if (controlsDiv.classList.contains('collapsed')) {
+                    controlsDiv.classList.remove('collapsed');
+                    toggleControlsButton.setAttribute('aria-expanded', 'true');
+                    stateChanged = true; // State changed
+                 }
+            }
+
+             // ** Only call resize (with delay) IF the collapsed state was changed **
+             if (stateChanged) {
+                const transitionDuration = 5; // Match the CSS transition time
+                const resizeBuffer = 5;       // Small extra buffer
+                setTimeout(() => {
+                     onWindowResize();
+                }, transitionDuration + resizeBuffer);
+             } else {
+                 // If state didn't change, but window *might* have resized externally,
+                 // call resize immediately (the general resize listener handles this anyway,
+                 // but this covers edge cases where checkScreenSize runs without the main listener)
+                 onWindowResize();
+             }
+        }
+
+         // Combined handler for settings changes
+function handleSettingsChange() { // Remove fullReset parameter
+    // Always update things that might change based on ANY setting change
+    updateNetHeight();
+    updateServePosition(); // This calls resetSimulation if needed internally now
+    updateWindVisualization(); // Update wind visuals and force vector
+
+    // If the simulation is not running, ensure the state reflects the changes
+    if (!isSimulating) {
+        // resetSimulation(); // updateServePosition now handles this when position changes.
+                           // We still need reset for gender, wind enable etc.
+                           // Let's keep resetSimulation here for robustness on *any* change when not simulating.
+        resetSimulation(); // Resets ball, clears trajectory, updates arrow, resets results
+    }
+    // If simulating, changes will often take effect on the *next* serve
+    // or might dynamically influence if implemented that way (wind currently does).
+}
+
+function startServe() {
+    // Prevent starting again if already simulating OR transitioning
+    if (isSimulating || isTransitioningToBallCam || isWaitingAfterBallCam || isTransitioningFromBallCam) return;
+
+    resetSimulation(); // Clean state (already does some necessary resets)
+
+    ballCamActive = enableBallCamCheckbox.checked; // Check user preference just before serving
+
+    if (ballCamActive) {
+        // --- Initiate Ball Cam Transition ---
+        ballCamInUse = true; // Mark ball cam as controlling the camera now
+        storeCamera();
+        if (controls) controls.enabled = false;
+        isTransitioningToBallCam = true; // Set state flag
+
+        // Calculate the *initial* target position and lookAt for the transition
+        const initialVelocity = calculateInitialVelocity(); // Use a helper function
+        const velocityDirection = initialVelocity.clone().normalize();
+        const behindVector = velocityDirection.clone().multiplyScalar(-0.6);
+        const upVector = new THREE.Vector3(0, 0.2, 0);
+        targetBallCamPos.copy(currentServePosition).add(behindVector).add(upVector); // Start behind initial pos
+        targetBallCamLookAt.copy(currentServePosition).add(velocityDirection.multiplyScalar(5.0)); // Look ahead
+
+        // DO NOT start physics simulation yet. The animate loop will handle it after transition.
+        serveButton.disabled = true; // Disable button during transition
+        serveButton.textContent = 'Positioning Cam...';
+        if (serveArrow) serveArrow.visible = false;
+
+    } else {
+        // --- Start Simulation Directly (No Ball Cam) ---
+        ballCamInUse = false;
+        startPhysicsSimulation(); // Directly start physics
+    }
+}
+
+// Helper function to calculate initial velocity (to avoid code duplication)
+function calculateInitialVelocity() {
+    const speed  = parseFloat(launchSpeedSlider.value);
+    const vAngle = parseFloat(verticalAngleSlider.value) * Math.PI / 180;
+    const hAngle = -parseFloat(horizontalAngleSlider.value) * Math.PI / 180;
+
+    const initialVelocity = new THREE.Vector3(1, 0, 0);
+    initialVelocity.applyAxisAngle(new THREE.Vector3(0, 0, 1), vAngle);
+    initialVelocity.applyAxisAngle(new THREE.Vector3(0, 1, 0), hAngle);
+    initialVelocity.normalize().multiplyScalar(speed);
+    return initialVelocity;
+}
+
+
+// Helper function to actually start physics (called either directly or after transition)
+function startPhysicsSimulation() {
+    const initialVelocity = calculateInitialVelocity(); // Get settings again
+
+    ballPosition.copy(currentServePosition);
+    ballVelocity.copy(initialVelocity);
+    if (ball) ball.position.copy(ballPosition); // Update mesh position
+
+    trajectoryPoints = [ballPosition.clone()];
+    simulationStartTime = performance.now();
+    flightTime = 0;
+    finalVelocityBeforeImpact.set(0, 0, 0);
+
+    isSimulating = true; // ****** PHYSICS STARTS HERE ******
+    serveButton.disabled = true;
+    serveButton.textContent = 'Simulating...';
+    if (serveArrow) serveArrow.visible = false;
+}
+
+        function onWindowResize() {
+            if (!camera || !renderer || !container) return;
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+
+        // --- Camera Control ---
+        function setCameraPosition(preset) {
+			if (!camera || !controls || ballCamInUse || isTransitioningToBallCam || isWaitingAfterBallCam || isTransitioningFromBallCam) {
+		        console.log("Camera change blocked by active Ball Cam state."); // Optional: for debugging
+		        return;
+		    }
+             const targetPos = new THREE.Vector3(0, currentNetHeight * 0.6, 0); // Common target area near net center
+
+             switch (preset) {
+                case 'baselineSide': // Renamed from 'side'
+                    camera.position.set(COURT_LENGTH * 0.55, 5, POLE_DISTANCE * 0.8); // Positioned side/behind baseline
+                    controls.target.set(0, currentNetHeight / 2, 0);
+                    break;
+                case 'courtSide': // New view from the actual side line
+                    camera.position.set(0, currentNetHeight * 1.5, COURT_WIDTH * 1.8); // Along Z axis, looking across X=0
+                    controls.target.copy(targetPos);
+                    break;
+                case 'top':
+                    camera.position.set(0, COURT_LENGTH * 1.1, 0.1); // Slightly offset from pure top to avoid gimbal lock issues with OrbitControls
+                    controls.target.set(0, 0, 0);
+                    break;
+                case 'behind':
+                default:
+                    const behindOffset = new THREE.Vector3(-4.5, 2.8, 0); // Adjusted offset
+                    const adjustedOffset = behindOffset.clone();
+                    adjustedOffset.z += currentServePosition.z * 0.6; // Pan more with server Z
+
+                    const behindPos = currentServePosition.clone().add(adjustedOffset);
+                    camera.position.copy(behindPos);
+                    controls.target.set(COURT_LENGTH * 0.1, currentNetHeight * 0.5, currentServePosition.z * 0.4);
+                    break;
+             }
+             controls.update();
+         }
+
+         function updateBallCamera() {
+		    // Guard clause: Only run if actively simulating and ball cam is in use
+		    if (!ballCamInUse || !isSimulating || !ball || ballVelocity.lengthSq() < 0.1) {
+		        return;
+		    }
+
+		    // Calculate desired camera position relative to the ball
+		    // ... (rest of the existing updateBallCamera logic remains the same)
+		    const velocityDirection = ballVelocity.clone().normalize();
+		    const behindVector = velocityDirection.clone().multiplyScalar(-0.6);
+		    const upVector = new THREE.Vector3(0, 0.2, 0);
+		    const desiredPosition = ballPosition.clone().add(behindVector).add(upVector);
+		    const lookAtTarget = ballPosition.clone().add(velocityDirection.multiplyScalar(5.0));
+
+		    camera.position.lerp(desiredPosition, 0.1); // Smooth follow
+		    camera.lookAt(lookAtTarget);
+		}
+        function storeCamera() {
+             if (!camera || !controls) return;
+             preBallCamPosition.copy(camera.position);
+             preBallCamTarget.copy(controls.target);
+         }
+		function restoreCamera() {
+		     if (!camera || !controls) return;
+		     camera.position.copy(preBallCamPosition);
+		     controls.target.copy(preBallCamTarget);
+		     controls.enabled = true; // Re-enable orbit controls
+		     controls.update(); // Apply restored state
+		     // ballCamActive = false; // Don't reset the USER preference here
+		     ballCamInUse = false; // *** Reset the "currently in use" flag ***
+		}
+        // --- Save/Load Functionality ---
+         function generateSaveLoadButtons() {
+            saveLoadDiv.innerHTML = '';
+            for (let i = 1; i <= NUM_SAVE_SLOTS; i++) {
+                // No need for slot-group div with grid layout
+                 const saveButton = document.createElement('button');
+                 saveButton.textContent = `Save ${i}`;
+                 saveButton.title = `Save settings to slot ${i}`;
+                 saveButton.addEventListener('click', () => saveSettings(i));
+                 saveLoadDiv.appendChild(saveButton);
+
+                const loadButton = document.createElement('button');
+                loadButton.textContent = `Load ${i}`;
+                loadButton.title = `Load settings from slot ${i}`;
+                loadButton.addEventListener('click', () => loadSettings(i));
+                saveLoadDiv.appendChild(loadButton);
+             }
+        }
+
+        function saveSettings(slot) {
+            if (!camera || !controls) return;
+            try {
+                const settings = {
+                    version: 1.1, // Increment version if format changes
+                    gender: genderMaleRadio.checked ? 'male' : 'female',
+                    launchPosition: launchPositionSelect.value,
+                    launchSpeed: launchSpeedSlider.value,
+                    verticalAngle: verticalAngleSlider.value,
+                    horizontalAngle: horizontalAngleSlider.value,
+                    windEnabled: enableWindCheckbox.checked,
+                    windStrength: windStrengthSlider.value,
+                    windDirection: windDirectionSlider.value,
+                    ballCamEnabled: enableBallCamCheckbox.checked, // Save ball cam preference
+                    camera: {
+                        position: camera.position.toArray(),
+                        target: controls.target.toArray() // Save OrbitControls target (even if ball cam was last used)
+                    }
+                };
+                localStorage.setItem(`vbServeSim_slot_${slot}`, JSON.stringify(settings));
+                // console.log(`Settings saved to slot ${slot}`);
+                 //alert(`Settings saved to slot ${slot}`);
+            } catch (e) {
+                console.error("Could not save settings:", e);
+                 alert("Error saving settings.");
+            }
+        }
+
+        function loadSettings(slot) {
+            if (!camera || !controls) return;
+             try {
+                const savedData = localStorage.getItem(`vbServeSim_slot_${slot}`);
+                if (savedData) {
+                    const settings = JSON.parse(savedData);
+
+                    // Apply Settings to UI
+                    if (settings.gender === 'male') genderMaleRadio.checked = true;
+                    else if (settings.gender === 'female') genderFemaleRadio.checked = true;
+
+                    launchPositionSelect.value = settings.launchPosition ?? 'center';
+                    launchSpeedSlider.value = settings.launchSpeed ?? 15;
+                    verticalAngleSlider.value = settings.verticalAngle ?? 20;
+                    horizontalAngleSlider.value = settings.horizontalAngle ?? 0;
+                    enableWindCheckbox.checked = settings.windEnabled ?? false;
+                    windStrengthSlider.value = settings.windStrength ?? 0.5;
+                    windDirectionSlider.value = settings.windDirection ?? 0;
+                    enableBallCamCheckbox.checked = settings.ballCamEnabled ?? false; // Load ball cam preference
+
+                    // Update UI Value Displays
+                    launchSpeedValue.textContent = `${parseFloat(launchSpeedSlider.value).toFixed(1)} m/s`;
+                    verticalAngleValue.textContent = `${verticalAngleSlider.value} °`;
+                    horizontalAngleValue.textContent = `${horizontalAngleSlider.value} °`;
+                    windStrengthValue.textContent = parseFloat(windStrengthSlider.value).toFixed(1);
+                    windDirectionValue.textContent = `${windDirectionSlider.value} °`;
+
+                    // Restore Camera state BEFORE calling handleSettingsChange
+                     if (settings.camera && settings.camera.position && settings.camera.target) {
+                         // Ensure OrbitControls are enabled before restoring
+                         controls.enabled = true;
+                         ballCamActive = false; // Ensure ball cam state is reset
+
+                         camera.position.fromArray(settings.camera.position);
+                         controls.target.fromArray(settings.camera.target);
+                         controls.update(); // Apply changes immediately
+                     } else {
+                        // Apply a default view if camera data is missing
+                        updateServePosition(); // Ensure serve pos is current first
+                        setCameraPosition('behind');
+                     }
+
+
+                    // Apply Settings Logically & Reset Simulation State
+                    handleSettingsChange(true); // Trigger full reset based on loaded settings
+
+                    // console.log(`Settings loaded from slot ${slot}`);
+                    //alert(`Settings loaded from slot ${slot}`);
+                } else {
+                     alert(`No settings found in slot ${slot}.`);
+                }
+             } catch (e) {
+                console.error("Could not load settings:", e);
+                 alert("Error loading settings. Data might be corrupted.");
+             }
+        }
+
+
+        // --- Animation Loop ---
+		const clock = new THREE.Clock();
+		function animate() {
+		    requestAnimationFrame(animate);
+
+		    const deltaTime = clock.getDelta();
+
+		    // 1. Handle Pre-Serve Ball Cam Transition
+		    if (isTransitioningToBallCam) {
+		        camera.position.lerp(targetBallCamPos, BALL_CAM_TRANSITION_SPEED);
+		        camera.lookAt(targetBallCamLookAt); // Keep looking at the initial target
+
+		        // Check if camera is close enough to the starting ball cam position
+		        if (camera.position.distanceTo(targetBallCamPos) < 0.1) {
+		            camera.position.copy(targetBallCamPos); // Snap to final position
+		            isTransitioningToBallCam = false;       // End transition state
+		            startPhysicsSimulation();              // ***** START PHYSICS *****
+		        }
+		    }
+
+		    // 2. Update physics simulation if active
+		    if (isSimulating) {
+		        updatePhysics(deltaTime);
+		    }
+
+		    // 3. Update active ball camera position during flight
+		    //    (Only run if actually simulating AND ball cam is controlling)
+		    if (ballCamInUse && isSimulating) {
+		        updateBallCamera(); // The existing function to follow the ball
+		    }
+
+		    // 4. Handle Post-Serve Ball Cam Delay
+		    if (isWaitingAfterBallCam) {
+		        // Check if the delay has passed
+		        if (performance.now() - ballCamEndTime > BALL_CAM_END_DELAY) {
+		            isWaitingAfterBallCam = false;
+		            isTransitioningFromBallCam = true; // Start the return transition
+		            // We don't need to calculate target here, restoreCamera has the info
+		        }
+		        // Do nothing else, just wait
+		    }
+
+		    // 5. Handle Post-Delay Ball Cam Return Transition
+		    if (isTransitioningFromBallCam) {
+		        camera.position.lerp(preBallCamPosition, BALL_CAM_TRANSITION_SPEED);
+		        // Smoothly move controls target back as well
+		        if(controls) controls.target.lerp(preBallCamTarget, BALL_CAM_TRANSITION_SPEED);
+
+		        // Check if camera and target are close enough to the original state
+		        const posClose = camera.position.distanceTo(preBallCamPosition) < 0.1;
+		        const targetClose = controls ? controls.target.distanceTo(preBallCamTarget) < 0.1 : true; // Assume true if no controls
+
+		        if (posClose && targetClose) {
+		            isTransitioningFromBallCam = false; // End transition
+		            restoreCamera();                   // Snap to final state, re-enable controls // ***** CORRECTED PART *****
+		            // Explicitly ensure arrow is visible and updated AFTER camera restore
+		            // updateArrow(); // Replace the single call to updateArrow()...
+		            if (serveArrow) {
+		                // First, ensure it's potentially visible based on logic
+		                updateArrow();
+		                // Second, explicitly set visible if conditions allow (redundant but safe)
+		                if (!isSimulating && !ballCamInUse) { // Double check state
+		                     serveArrow.visible = true;
+		                }
+		            }
+		            // ***** END CORRECTION *****
+		        } else if (controls) {
+		             // IMPORTANT: During transition OUT of ball cam, manually update controls
+		             // because camera.lookAt is no longer being called in updateBallCamera
+		             controls.update();
+		        }
+		    }
+
+		    // 6. Update orbit controls ONLY if not managed by Ball Cam
+		    if (controls && controls.enabled) { // controls.enabled is managed by transitions now
+		         controls.update();
+		    }
+
+		    // 7. Render
+		    if (renderer && scene && camera) {
+		        renderer.render(scene, camera);
+		    }
+		}
+        // --- Start ---
+        init();
+
+    </script>
+	<!-- Add this just BEFORE the closing </body> tag -->
+<button id="toggleControlsButton" aria-label="Toggle Settings Panel" aria-expanded="true">
+    ⚙️ <!-- Gear Icon (or use text like "Settings") -->
+</button>
+</body>
+</html>
