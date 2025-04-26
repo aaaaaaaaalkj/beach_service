@@ -682,8 +682,35 @@ const groundMaterial = new THREE.MeshStandardMaterial({
 
 
 		function createBall() {
-            const ballGeometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 16);
-            const ballMaterial = new THREE.MeshStandardMaterial({ color: 0xffff4d, roughness: 0.6, metalness: 0.1 }); // Yellow ball, slightly less rough
+
+            // Increase segments for better texture mapping
+            const ballGeometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
+			// --- Load the Texture ---
+            const ballTexture = textureLoader.load(
+				'beachvolleyball.png',
+                //'basketball_sph.png',//'beachvolleyball.jpg',
+                (texture) => {
+                    // Success callback
+                    console.log("Volleyball texture loaded.");
+                    // ** Important for color accuracy **
+                    texture.colorSpace = THREE.SRGBColorSpace;
+                    // Optional: Adjust wrapping if needed (usually RepeatWrapping is fine for spheres)
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                },
+                undefined, // Progress callback (optional)
+                (err) => {
+                    // Error callback
+                    console.error('Failed to load volleyball texture:', err);
+                    // Ball will remain plain if texture fails to load
+                }
+            );
+            const ballMaterial = new THREE.MeshStandardMaterial({
+				//color: 0xffff4d,
+                map       : ballTexture, // Apply the loaded texture as the color map
+                roughness : 0.75, // Adjust roughness for a typical volleyball surface
+                metalness : 0.05  // Keep it mostly non-metallic
+			});
             ball = new THREE.Mesh(ballGeometry, ballMaterial);
             ball.castShadow = true;
             ball.receiveShadow = false;
