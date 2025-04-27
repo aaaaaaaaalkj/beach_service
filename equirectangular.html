@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mikasa Equirectangular Pattern (V12 - Intermediate Curves)</title>
+    <meta charset="UTF-8">
+    <style>
+        body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f0f0f0; }
+        canvas { border: 1px solid #555; max-width: 90%; max-height: 90vh; object-fit: contain; }
+    </style>
+</head>
+<body>
+    <canvas id="mikasaCanvas"></canvas>
+
+    <script>
+        /**
+         * Draws the full stylized Mikasa ball pattern using custom exponent curves.
+         * V12: Using exponent 2.8 for a shape between quadratic and quartic.
+         *
+         * @param {string} canvasId The ID of the HTML canvas element.
+         * @param {number} width The desired width of the map.
+         * @param {number} height The desired height of the map.
+         * @param {string} [bgColor='white'] Color for inside curves.
+         * @param {string} [blueColor='#0051A0'] Color for blue sections.
+         * @param {string} [yellowColor='#FFD700'] Color for yellow sections.
+         * @param {string} [borderColor='black'] Color for dividing lines.
+         * @param {number} [borderWidth=1] Width for dividing lines.
+         * @param {number} [curveExponent=2.8] Exponent for pole curves ( > 2).
+         */
+        function drawMikasaPattern(
+            canvasId,
+            width,
+            height,
+            bgColor = 'white',
+            blueColor = '#0051A0',
+            yellowColor = '#FFD700',
+            borderColor = 'black',
+            borderWidth = 1,
+            curveExponent = 2.8 // Tunable parameter
+        ) {
+            // --- Setup ---
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) { console.error(`Canvas element with ID "${canvasId}" not found.`); return; }
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { console.error("Could not get 2D context from canvas."); return; }
+            width = Math.floor(width); height = Math.floor(height); canvas.width = width; canvas.height = height;
+            const northPoleTopY = 0; const equatorTopY = Math.floor(height / 3); const equatorBottomY = Math.floor(2 * height / 3); const southPoleBottomY = height;
+            const northPoleHeight = equatorTopY - northPoleTopY; const equatorHeight = equatorBottomY - equatorTopY; const southPoleHeight = southPoleBottomY - equatorBottomY;
+            const equatorAmplitude = equatorHeight / 4; const equatorCenterY = equatorTopY + equatorHeight / 2;
+            const horizontalShift = width * 0.03;
+
+            // --- North Pole Custom Curves ---
+            const northCurveBaseY = equatorTopY;
+            const northCurveApexY = Math.floor(equatorTopY - (northPoleHeight * (2 / 3)));
+            const northCurve1StartX = width * 0.25 + horizontalShift;
+            const northCurve1EndX = width * 0.75 - horizontalShift;
+            const northCurve1ApexX = width * 0.5;
+            const deltaX_North1 = northCurve1StartX - northCurve1ApexX; // Horizontal dist from start to apex
+             if (deltaX_North1 === 0) { console.error("North Curve 1 deltaX is zero."); return; }
+             const northCurveHalfWidth = Math.abs(deltaX_North1); // Use positive half-width
+
+            // *** Use custom exponent and ABSOLUTE half-width for coefficient calculation ***
+            const northCurveCoeffA = (northCurveBaseY - northCurveApexY) / Math.pow(northCurveHalfWidth, curveExponent);
+
+            const northCurve2EndX_Left = northCurveHalfWidth;
+            const northCurve2StartX_Right = width - northCurveHalfWidth;
+
+            // North Helper Functions (using custom exponent and abs)
+            const getNorthCurveY1 = (x) => {
+                if (x < northCurve1StartX || x > northCurve1EndX) { return northCurveBaseY + 1; }
+                // *** Use custom exponent and Math.abs() ***
+                return northCurveCoeffA * Math.pow(Math.abs(x - northCurve1ApexX), curveExponent) + northCurveApexY;
+            };
+            const getNorthCurveY2 = (x) => {
+                let curveY = northCurveBaseY + 1;
+                // *** Use custom exponent and Math.abs() ***
+                if (x >= 0 && x <= northCurve2EndX_Left) { curveY = northCurveCoeffA * Math.pow(Math.abs(x - 0), curveExponent) + northCurveApexY; }
+                else if (x >= northCurve2StartX_Right && x < width) { curveY = northCurveCoeffA * Math.pow(Math.abs(x - width), curveExponent) + northCurveApexY; }
+                return curveY;
+            };
+
+            // --- South Pole Custom Curves ---
+            const southCurveBaseY = equatorBottomY;
+            const southCurveApexY = Math.floor(equatorBottomY + (southPoleHeight * (2 / 3)));
+            // *** Use custom exponent and ABSOLUTE half-width ***
+            const southCurveCoeffA = (southCurveBaseY - southCurveApexY) / Math.pow(northCurveHalfWidth, curveExponent); // Negative
+
+            const southCurve1ApexX = (northCurve1ApexX + 0.25 * width) % width;
+            const southCurve2ApexX = (0 + 0.25 * width) % width;
+            const southCurve1StartX = southCurve1ApexX - northCurveHalfWidth;
+            const southCurve1EndX = southCurve1ApexX + northCurveHalfWidth;
+            const southCurve2StartX = southCurve2ApexX - northCurveHalfWidth;
+            const southCurve2EndX = southCurve2ApexX + northCurveHalfWidth;
+
+            // South Helper Functions (using custom exponent and abs)
+            const getSouthCurveY1 = (x) => {
+                if (x >= southCurve1StartX && x <= southCurve1EndX) {
+                    // *** Use custom exponent and Math.abs() ***
+                    return southCurveCoeffA * Math.pow(Math.abs(x - southCurve1ApexX), curveExponent) + southCurveApexY;
+                }
+                return southCurveBaseY - 1;
+            };
+            const getSouthCurveY2 = (x) => {
+                 let x_effective = x;
+                 // Determine if x is within the logical span, handling wrap-around (logic unchanged)
+                 let isInSpan = false;
+                 if (southCurve2StartX < 0) { if (x >= (width + southCurve2StartX) || x <= southCurve2EndX) { isInSpan = true; if (x >= (width + southCurve2StartX)) x_effective = x - width; } }
+                 else if (southCurve2EndX > width) { if (x <= (southCurve2EndX - width) || x >= southCurve2StartX) { isInSpan = true; if (x <= (southCurve2EndX - width)) x_effective = x + width; } }
+                 else { if (x >= southCurve2StartX && x <= southCurve2EndX) { isInSpan = true; } }
+                 if (!isInSpan) { return southCurveBaseY - 1; }
+                 // *** Use custom exponent and Math.abs() ***
+                 return southCurveCoeffA * Math.pow(Math.abs(x_effective - southCurve2ApexX), curveExponent) + southCurveApexY;
+            };
+
+            // --- Pixel Manipulation Setup (Identical) ---
+            const imageData=ctx.createImageData(width,height); const data=imageData.data;
+            function setPixel(x,y,r,g,b,a=255){x=Math.max(0,Math.min(width-1,Math.floor(x)));y=Math.max(0,Math.min(height-1,Math.floor(y)));const i=(y*width+x)*4;data[i]=r;data[i+1]=g;data[i+2]=b;data[i+3]=a;}
+            function hexToRgb(h){h=h.startsWith('#')?h.slice(1):h;if(h.length===3){h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];}if(h.length!==6){console.warn(`Invalid hex:${h}`);return{r:0,g:0,b:0};}const B=parseInt(h,16);return{r:(B>>16)&255,g:(B>>8)&255,b:B&255};}
+            const blueRgb=hexToRgb(blueColor); const yellowRgb=hexToRgb(yellowColor); const bgRgb=hexToRgb(bgColor);
+            const getCosY = (x) => { const angle = (x/width)*4*Math.PI; return equatorCenterY - equatorAmplitude*Math.cos(angle); };
+
+            // --- Iterate through pixels (Calls custom curve funcs) ---
+            for (let y = 0; y < height; y++) { for (let x = 0; x < width; x++) { let r, g, b; if (y < equatorTopY) { const cY1=getNorthCurveY1(x); const cY2=getNorthCurveY2(x); if (y>=cY1 || y>=cY2){r=bgRgb.r;g=bgRgb.g;b=bgRgb.b;} else{r=blueRgb.r;g=blueRgb.g;b=blueRgb.b;} } else if (y < equatorBottomY) { const cY=getCosY(x); if(y>=cY){r=blueRgb.r;g=blueRgb.g;b=blueRgb.b;} else{r=yellowRgb.r;g=yellowRgb.g;b=yellowRgb.b;} } else { const cY1=getSouthCurveY1(x); const cY2=getSouthCurveY2(x); if(y<=cY1 || y<=cY2){r=bgRgb.r;g=bgRgb.g;b=bgRgb.b;} else{r=yellowRgb.r;g=yellowRgb.g;b=yellowRgb.b;} } setPixel(x, y, r, g, b); } }
+
+            // --- Draw ImageData (Identical) ---
+            ctx.putImageData(imageData, 0, 0);
+
+            // --- Draw Borders (Calls custom curve funcs) ---
+            ctx.strokeStyle = borderColor; ctx.lineWidth = borderWidth;
+            // 1. Equator Cosine Wave Border (Identical)
+            ctx.beginPath();ctx.moveTo(0,getCosY(0));for(let x=1;x<=width;x++){ctx.lineTo(x,getCosY(x));}ctx.stroke();
+            // 2. Horizontal Division Lines (Identical)
+            ctx.beginPath();ctx.moveTo(0,equatorTopY);ctx.lineTo(width,equatorTopY);ctx.moveTo(0,equatorBottomY);ctx.lineTo(width,equatorBottomY);ctx.stroke();
+            // 3. Equator Vertical Line Segments (Identical)
+            const x0=0,x25=width*0.25,x50=width*0.50,x75=width*0.75;const cY0=getCosY(x0),cY25=getCosY(x25),cY50=getCosY(x50),cY75=getCosY(x75);
+            ctx.beginPath();ctx.moveTo(x0+borderWidth/2,cY0);ctx.lineTo(x0+borderWidth/2,equatorBottomY);ctx.moveTo(x50,cY50);ctx.lineTo(x50,equatorBottomY);ctx.stroke();
+            ctx.beginPath();ctx.moveTo(x25,equatorTopY);ctx.lineTo(x25,cY25);ctx.moveTo(x75,equatorTopY);ctx.lineTo(x75,cY75);ctx.stroke();
+
+            // 4. North Pole Curve 1 Border (Center) - Use Custom Curve
+            ctx.beginPath(); const drawStartXN1 = Math.floor(northCurve1StartX); const drawEndXN1 = Math.ceil(northCurve1EndX);
+            ctx.moveTo(drawStartXN1, northCurveBaseY);
+            for (let x = drawStartXN1; x <= drawEndXN1; x++) {
+                 let plotY = getNorthCurveY1(x); // Use custom curve func
+                 plotY = Math.max(northCurveApexY, Math.min(northCurveBaseY, plotY));
+                 ctx.lineTo(x, plotY);
+            } ctx.lineTo(drawEndXN1, northCurveBaseY); ctx.stroke();
+
+            // 5. North Pole Curve 2 Border (Edges) - Use Custom Curve & Adjusted Edge Logic
+            const drawEndXN2L = Math.ceil(northCurve2EndX_Left); const drawStartXN2R = Math.floor(northCurve2StartX_Right);
+            // Right part (near x=0)
+            ctx.beginPath(); ctx.moveTo(0, northCurveApexY); // Start AT the curve on the edge
+            for (let x = 1; x <= drawEndXN2L; x++) {
+                let plotY = getNorthCurveY2(x); // Use custom curve func
+                plotY = Math.max(northCurveApexY, Math.min(northCurveBaseY, plotY)); ctx.lineTo(x, plotY);
+            } ctx.stroke();
+            // Left part (near x=width)
+            ctx.beginPath();
+            let firstY_N2R = getNorthCurveY2(drawStartXN2R); // Use custom curve func
+            firstY_N2R = Math.max(northCurveApexY, Math.min(northCurveBaseY, firstY_N2R));
+            ctx.moveTo(drawStartXN2R, firstY_N2R); // Start AT the first point
+            for (let x = drawStartXN2R + 1; x < width; x++) {
+                let plotY = getNorthCurveY2(x); // Use custom curve func
+                plotY = Math.max(northCurveApexY, Math.min(northCurveBaseY, plotY));
+                const plotX = Math.min(x, width); ctx.lineTo(plotX, plotY);
+            } ctx.lineTo(width, northCurveApexY); ctx.stroke(); // End AT the curve on the edge
+
+            // 6. South Pole Curve 1 Border (Shifted Center @ 0.75w) - Use Custom Curve
+            ctx.beginPath(); const drawStartXS1 = Math.floor(southCurve1StartX); const drawEndXS1 = Math.ceil(southCurve1EndX);
+            ctx.moveTo(drawStartXS1, southCurveBaseY); // Start at base
+            for (let x = drawStartXS1; x <= drawEndXS1; x++) {
+                let plotY = getSouthCurveY1(x); // Use custom curve func
+                plotY = Math.min(southCurveApexY, Math.max(southCurveBaseY, plotY)); // Clamp Y
+                ctx.lineTo(x, plotY);
+            } ctx.lineTo(drawEndXS1, southCurveBaseY); ctx.stroke(); // End at base
+
+            // 7. South Pole Curve 2 Border (Shifted Edge @ 0.25w) - Use Custom Curve
+            ctx.beginPath(); const startX_S2 = Math.floor(southCurve2StartX); const endX_S2 = Math.ceil(southCurve2EndX);
+            let lastPlotX=-1,lastPlotY=-1; let pathStarted=false;
+            for (let x = startX_S2; x <= endX_S2; x++) {
+                let currentDrawX=x%width; if(currentDrawX<0) currentDrawX+=width;
+                let plotY = getSouthCurveY2(currentDrawX); // Use custom curve func
+                if (plotY >= southCurveBaseY) { // Check against base
+                    plotY = Math.min(southCurveApexY, Math.max(southCurveBaseY, plotY)); // Clamp Y
+                    if (!pathStarted || Math.abs(currentDrawX - lastPlotX) > 1) {
+                        if (pathStarted && lastPlotX !== -1) { ctx.lineTo(lastPlotX, southCurveBaseY); }
+                        ctx.moveTo(currentDrawX, southCurveBaseY); ctx.lineTo(currentDrawX, plotY); pathStarted = true;
+                    } else { ctx.lineTo(currentDrawX, plotY); }
+                    lastPlotX = currentDrawX; lastPlotY = plotY;
+                }
+            } if (pathStarted && lastPlotX !== -1) { ctx.lineTo(lastPlotX, southCurveBaseY); }
+            ctx.stroke();
+
+            console.log(`Mikasa pattern V12 (Exponent ${curveExponent}) drawn.`);
+        }
+
+        // --- Call the function ---
+        window.addEventListener('load', () => {
+            const desiredWidth = 1000;
+            const desiredHeight = 500;
+            drawMikasaPattern(
+                'mikasaCanvas', desiredWidth, desiredHeight,
+                '#FFFFFF', '#0051A0', '#FFD700', '#000000', 1,
+                2.5 // Try changing this value (e.g., 2.2, 2.5, 3.0, 3.5)
+            );
+        });
+
+    </script>
+</body>
+</html>
