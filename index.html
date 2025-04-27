@@ -346,13 +346,11 @@
 		    const bandHeight = canvasSize / 2; // Half canvas for red, half for white
 
 		    ctx.fillStyle = '#ffffff';
-		    ctx.fillRect(0, 0, dynamicAntennaCanvas.width, canvasSize );
+		    ctx.fillRect(0, bandHeight, dynamicAntennaCanvas.width, bandHeight);
 
-		    // Draw Red Band (Top Half)
 		    ctx.fillStyle = '#ff3030'; // Use the original red color
-		    ctx.fillRect( 0, -4, dynamicAntennaCanvas.width, bandHeight );
-
-
+		    ctx.fillRect(0, 0, dynamicAntennaCanvas.width, bandHeight);
+		    
 		    // Create the texture from the canvas
 		    dynamicAntennaTexture = new THREE.CanvasTexture(dynamicAntennaCanvas);
 		    dynamicAntennaTexture.colorSpace = THREE.SRGBColorSpace; // Crucial for color
@@ -679,23 +677,10 @@
 				        antenna.material = dynamicAntennaMaterial;
 
 				        // Calculate repeats ONLY based on the part ABOVE the net top band
-				        const patternHeightMeters = 0.10; // Real-world height of one red/white pattern
+				        const patternHeightMeters = 0.20; // Real-world height of one red/white pattern
 				        // The length of the striped part is just ANTENNA_HEIGHT
-				        const repeatsY = ANTENNA_HEIGHT / patternHeightMeters;
-
-				        dynamicAntennaTexture.repeat.set(1, repeatsY);
-
-				        // *** CRITICAL: Texture Offset ***
-				        // We need to shift the texture vertically so the pattern starts
-				        // right at the top edge of the net.
-				        // The total texture covers 'repeatsY' patterns.
-				        // The antenna geometry covers 'totalVisualAntennaLength'.
-				        // The part below the net is 'NET_VISUAL_HEIGHT'.
-				        // The fraction of the *geometry* that is below the net is NET_VISUAL_HEIGHT / totalVisualAntennaLength.
-				        // We need to offset the texture start by this fraction of the *total texture V coordinate*.
-				        const vOffset = (NET_VISUAL_HEIGHT / totalVisualAntennaLength);
-				        dynamicAntennaTexture.offset.set(0, vOffset); // Offset along V (Y)
-
+   						const exactRepeatsY = totalVisualAntennaLength / patternHeightMeters; // This is 8.0
+					    dynamicAntennaTexture.repeat.set( 1, exactRepeatsY );
 				        dynamicAntennaTexture.needsUpdate = true; // Essential for offset and repeat changes
 				    }
 
@@ -735,6 +720,18 @@
         }
 
         function createHelpers() {
+
+			const shaftRadius     = 0.01; // Adjust thickness
+			const headLengthRatio = 0.2; // Proportion of total length for the head
+			const headWidthRatio  = 3; // How many times wider the head is than the shaft
+			serveArrow = createCustomArrow(
+				0xff8888,
+				shaftRadius,
+				headLengthRatio,
+				headWidthRatio
+			);
+            serveArrow.visible = false; // Start hidden, shown by updateArrow
+			/*
             // Serve Arrow
             serveArrow = new THREE.ArrowHelper(
                 new THREE.Vector3(1, 0, 0), // Initial direction (will be updated)
@@ -744,8 +741,20 @@
                 0.3,                        // Head length proportion
                 0.15                        // Head width proportion
             );
+			
+			// After creating the serveArrow
+			serveArrow.line.material = new THREE.MeshStandardMaterial({
+			    color: 0x00dd00,
+			    emissive: 0x003300 // Optional: add a slight glow
+			});
+			serveArrow.cone.material = new THREE.MeshStandardMaterial({
+			    color: 0x00dd00,
+			    emissive: 0x003300, // Optional: add a slight glow
+			    metalness: 0.5, // Optional: make it look metallic
+			    roughness: 0.6  // Optional: control shininess
+			});
+			*/
             scene.add(serveArrow);
-            serveArrow.visible = false; // Start hidden, shown by updateArrow
 
             // Wind Arrows
             const windArrowY = POLE_HEIGHT + 0.4;
@@ -756,6 +765,99 @@
             scene.add(windArrow2);
             updateWindVisualization(); // Set initial visibility/direction
         }
+
+		// --- Helper function to create the custom arrow (ensure shaft/head are built along Y) ---
+		function createCustomArrow(color = 0x00dd00, shaftRadius = 0.05, headLengthRatio = 0.2, headWidthRatio = 1.8) {
+		    // Calculate initial dimensions based on a conceptual total length of 1.0
+		    const initialTotalLength = 1.0;
+		    const initialHeadLength = initialTotalLength * headLengthRatio;
+		    const initialShaftLength = initialTotalLength * (1.0 - headLengthRatio);
+
+		    const material = new THREE.MeshStandardMaterial({
+		        color: color,
+		        metalness: 0.4,
+		        roughness: 0.6,
+		    });
+
+		    // Shaft (Cylinder) - Aligned with Y axis
+		    // Geometry takes height = initialShaftLength
+		    const shaftGeo = new THREE.CylinderGeometry(shaftRadius, shaftRadius, initialShaftLength, 16);
+		    // Move origin to the base of the cylinder
+		    shaftGeo.translate(0, initialShaftLength / 2, 0);
+		    const shaftMesh = new THREE.Mesh(shaftGeo, material);
+		    shaftMesh.name = "ArrowShaft"; // Optional: for debugging
+
+		    // Head (Cone) - Aligned with Y axis
+		    const headRadius = shaftRadius * headWidthRatio;
+		    // Geometry takes height = initialHeadLength
+		    const headGeo = new THREE.ConeGeometry(headRadius, initialHeadLength, 16);
+		    // Move origin to the base of the cone
+		    headGeo.translate(0, initialHeadLength / 2, 0);
+		    const headMesh = new THREE.Mesh(headGeo, material);
+		    headMesh.name = "ArrowHead"; // Optional: for debugging
+
+		    // Position head at the end of the shaft (using the initial shaft length)
+		    headMesh.position.y = initialShaftLength;
+
+		    // Group them together - the group's origin is the base of the shaft
+		    const arrowGroup = new THREE.Group();
+		    arrowGroup.add(shaftMesh);
+		    arrowGroup.add(headMesh);
+
+			arrowGroup.updateArrow = function(origin, direction, length) {
+			    // Basic validation
+			    if (!direction || direction.lengthSq() === 0 || length <= 0) { // Check for valid direction and positive length
+			         this.visible = false;
+			         return; // Avoid errors or invisible arrows
+			    }
+
+			    const normalizedDirection = direction.clone().normalize();
+
+			    // --- Modification Start ---
+			    // Scale ONLY the Y-axis (local space) to control the length.
+			    // Keep X and Z scale at 1 to maintain the original radius/width.
+			    this.scale.set(1, length, 1);
+			    // --- Modification End ---
+
+			    // Position the base of the arrow group at the desired origin
+			    this.position.copy(origin);
+
+			    // Align the arrow group's local Y-axis (which points "up" the arrow)
+			    // with the desired world-space direction vector.
+			    const quaternion = new THREE.Quaternion();
+			    const upVector = new THREE.Vector3(0, 1, 0); // Arrow's default orientation
+
+			    // Use quaternion for robust rotation. setFromUnitVectors aligns the first vector (up)
+			    // to the second vector (normalizedDirection).
+			    // Add a check for perfectly opposite vectors, which setFromUnitVectors can struggle with.
+			    if (upVector.dot(normalizedDirection) > -0.999999) { // Check they are not pointing exactly opposite
+			        quaternion.setFromUnitVectors(upVector, normalizedDirection);
+			    } else {
+			        // If they are opposite, rotate 180 degrees around an arbitrary perpendicular axis (e.g., X-axis)
+			        quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+			    }
+
+			    this.quaternion.copy(quaternion); // Apply the rotation
+
+			    this.visible = true; // Make sure it's visible
+			};
+
+		    // Attach the color method (optional, but good practice)
+		    arrowGroup.setColor = function(newColor) {
+		         material.color.set(newColor);
+		         // If using emissive, update it too
+		         // if (material.emissive) {
+		         //    material.emissive.set(newColor).multiplyScalar(0.2);
+		         // }
+		    };
+
+
+		    arrowGroup.visible = false; // Start hidden
+		    // Set initial scale to 1,1,1 (representing length 1)
+		    // The updateArrow function will adjust the Y scale later.
+		    arrowGroup.scale.set(1, 1, 1);
+		    return arrowGroup;
+		}
 
         function updateServePosition() {
             const position = launchPositionSelect.value;
@@ -790,7 +892,7 @@
 
         function updateArrow() {
             // Hide arrow if simulating, in ball cam, or during transitions
-            if (!serveArrow || isSimulating || ballCamInUse || isTransitioningToBallCam || isTransitioningFromBallCam) {
+            if (!serveArrow || !serveArrow.updateArrow|| isSimulating || ballCamInUse || isTransitioningToBallCam || isTransitioningFromBallCam) {
                  if (serveArrow) serveArrow.visible = false;
                  return;
             }
@@ -807,15 +909,35 @@
             dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), hAngle);
             dir.normalize(); // Ensure it's a unit vector
 
-            // Position the arrow at the current serve position
+
+            /*
+			// Position the arrow at the current serve position
             serveArrow.position.copy(currentServePosition);
             // Set the direction
             serveArrow.setDirection(dir);
-
+			*/
             // Scale the arrow length based on speed for visual feedback
-            const arrowScale = Math.max(0.6, Math.min(3.0, speed / 6)); // Clamp scale between 0.6 and 3.0
-            serveArrow.setLength(arrowScale, 0.3 * arrowScale, 0.15 * arrowScale); // Adjust head size proportionally
-
+			class Limiter{
+				constructor( min, max ){
+					this.min = min;
+					this.max = max;
+				}
+				static between( min, max ){
+					return new Limiter( min, max );
+				}
+				limit( value ){
+					return Math.max( this.min, Math.min( this.max, value ) );
+				}
+			}
+			const arrowScale = Limiter.between( 0.6, 3 ).limit( speed / 16 ); // Clamp scale between 0.6 and 3.0
+            //serveArrow.setLength(arrowScale, 0.3 * arrowScale, 0.15 * arrowScale); // Adjust head size proportionally
+			serveArrow.updateArrow(
+				currentServePosition,
+				dir,
+				1.00 * arrowScale,
+				0.30 * arrowScale,
+				0.15 * arrowScale
+			);
             serveArrow.visible = true; // Make sure it's visible
         }
 
