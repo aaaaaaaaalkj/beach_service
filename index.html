@@ -368,6 +368,93 @@
 		    console.log("Dynamic antenna texture created.");
 		}
 
+		let dynamicNetCanvas;
+		let dynamicNetTexture;
+		let dynamicNetMaterial; // We'll store the specific material for the net here
+
+		// --- Dynamic Net Texture Generation ---
+		function createDynamicNetTexture(options = {}) {
+		    // --- Configuration ---
+		    const defaults = {
+		        canvasSize: 64,
+		        lineWidth: 2,
+		        lineColor: '#ffffff', // Color to draw the lines
+		        materialColor: 0xffffff, // Base color of the mesh material
+		        alphaTestValue: 0.5,
+		        roughness: 0.8,
+		        metalness: 0.1
+		    };
+		    const config = { ...defaults, ...options };
+
+		    // --- Canvas Setup ---
+		    dynamicNetCanvas = document.createElement('canvas');
+		    dynamicNetCanvas.width  = config.canvasSize;
+		    dynamicNetCanvas.height = config.canvasSize;
+		    const ctx = dynamicNetCanvas.getContext('2d');
+
+		    // Background is transparent by default. We just draw the opaque parts (cords).
+
+		    // --- Draw the Net Pattern ---
+			const center = config.canvasSize / 2;
+			const hw = config.lineWidth / 2;
+
+			// Example: Fake highlight/shadow
+			// Shadow Line (darker, slightly offset down/right)
+			ctx.strokeStyle = '#555555';
+			ctx.lineWidth = config.lineWidth;
+			ctx.beginPath();
+			ctx.moveTo(0, center + 1); ctx.lineTo(config.canvasSize, center + 1); // Offset Y
+			ctx.moveTo(center + 1, 0); ctx.lineTo(center + 1, config.canvasSize); // Offset X
+			ctx.stroke();
+
+			// Main Line (lighter)
+			ctx.strokeStyle = config.lineColor; // e.g., '#dddddd'
+			ctx.lineWidth = config.lineWidth * 0.8; // Slightly thinner main line
+			ctx.beginPath();
+			ctx.moveTo(0, center); ctx.lineTo(config.canvasSize, center);
+			ctx.moveTo(center, 0); ctx.lineTo(center, config.canvasSize);
+			ctx.stroke();
+
+			// Highlight Line (brightest, slightly offset up/left)
+			ctx.strokeStyle = '#ffffff';
+			ctx.lineWidth = config.lineWidth * 0.3; // Thin highlight
+			ctx.beginPath();
+			ctx.moveTo(0, center - 1); ctx.lineTo(config.canvasSize, center - 1); // Offset Y
+			ctx.moveTo(center - 1, 0); ctx.lineTo(center - 1, config.canvasSize); // Offset X
+			ctx.stroke();
+
+		    // --- Texture Creation ---
+		    // Dispose old texture if this function is called again
+		    if (dynamicNetTexture) dynamicNetTexture.dispose();
+
+		    dynamicNetTexture = new THREE.CanvasTexture(dynamicNetCanvas);
+		    dynamicNetTexture.colorSpace = THREE.SRGBColorSpace; // Correct color handling
+		    dynamicNetTexture.wrapS = THREE.RepeatWrapping; // Repeat horizontally
+		    dynamicNetTexture.wrapT = THREE.RepeatWrapping; // Repeat vertically
+		    // Note: The actual number of repeats will be set later based on net dimensions
+		    dynamicNetTexture.needsUpdate = true;
+
+		    // --- Material Creation ---
+		    // Dispose old material if this function is called again
+		    if (dynamicNetMaterial) dynamicNetMaterial.dispose();
+
+		    dynamicNetMaterial = new THREE.MeshStandardMaterial({
+		        // map: dynamicNetTexture, // Can use map if the canvas drawing had complex colors/shading
+		        alphaMap: dynamicNetTexture, // Use the canvas alpha (lines=opaque, empty=transparent)
+		        color: config.materialColor, // Base color of the material (visible where alphaMap is > 0)
+		        roughness: config.roughness,
+		        metalness: config.metalness,
+		        transparent: true,          // ESSENTIAL for alphaMap to work
+		        side: THREE.DoubleSide,     // Net should be visible from both sides
+		        alphaTest: config.alphaTestValue, // Crucial: Discards pixels below this alpha threshold for sharp holes
+		    });
+
+		    console.log("Dynamic net texture and material created.");
+		    return dynamicNetMaterial; // Return the material to be applied to the mesh
+		}
+
+		// --- HOW TO USE IT ---
+
 		// Call the creation function once during initialization
 		createDynamicAntennaTexture();
 		// --- End Dynamic Antenna Texture Generation ---
@@ -584,10 +671,31 @@
             // Net Mesh
             const netVisualWidth = POLE_DISTANCE - POLE_RADIUS * 2;
             const netGeometry = new THREE.PlaneGeometry(netVisualWidth, NET_VISUAL_HEIGHT);
-            const netMaterial = new THREE.MeshStandardMaterial({
-                color: 0xf0f0f0, side: THREE.DoubleSide, transparent: true,
-                opacity: 0.7, alphaTest: 0.1 // Use alphaTest for sharp transparency cutoff if needed
-            });
+			// 1. Call the function (usually once during setup)
+			const netMaterial = createDynamicNetTexture({
+			    canvasSize    : 128, // Higher res texture
+			    lineWidth     : 20,    // Thicker cords
+			    lineColor     : '#dddddd', // Light gray cords
+			    materialColor : 0xffffff // Keep material base white
+			});
+
+			// 4. IMPORTANT: Set Texture Repeating based on Geometry Size
+			// This needs to be done AFTER the texture is created and you know the size of your net plane.
+			// It controls how many times the small canvas texture tiles across the large plane.
+			if (dynamicNetTexture) {
+			    // Decide how large one "square" of the net pattern should be in world units
+			    const desiredNetSquareSize = 0.1; // e.g., each net square is 10cm wide/high
+
+			    const repeatsX = netVisualWidth / desiredNetSquareSize;
+			    const repeatsY = NET_VISUAL_HEIGHT / desiredNetSquareSize;
+
+			    dynamicNetTexture.repeat.set(repeatsX, repeatsY);
+			    dynamicNetTexture.needsUpdate = true; // Tell Three.js the repeat has changed
+
+			    // Optional: Improve texture filtering at sharp view angles
+			    //dynamicNetTexture.anisotropy = renderer.capabilities.getMaxAnisotropy(); // Needs your renderer instance
+			}
+
             net = new THREE.Mesh(netGeometry, netMaterial);
             net.rotation.y = Math.PI / 2; // Rotate to face court length
             net.castShadow = false;
