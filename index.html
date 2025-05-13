@@ -273,7 +273,7 @@
         const POLE_DISTANCE = COURT_WIDTH + 1; // Poles slightly outside court
         const ANTENNA_HEIGHT = .8; // Above net top band
         const ANTENNA_RADIUS = 0.01; // actually the diameter is supposed to be 10mm
-        const BALL_RADIUS = 0.105; // Approximate FIVB radius
+        const BALL_RADIUS = 0.1083; // FIVB radius ( 10.51 - 10.83 )
         const BALL_MASS = 0.27; // kg (average)
         const GRAVITY = 9.81; // m/s^2
         const AIR_DENSITY = 1.225; // kg/m^3
@@ -553,7 +553,7 @@
             controls.minDistance = 1.5; // Prevent zooming too close
             controls.maxDistance = COURT_LENGTH * 2.5; // Limit zoom out based on court size
             // Limit Vertical Orbit
-            controls.maxPolarAngle = (90 + 20) * Math.PI / 180; // Allow looking down slightly (110 deg)
+            controls.maxPolarAngle = ( 90 + 2 ) * Math.PI / 180; // Allow looking down slightly (110 deg)
             controls.minPolarAngle = 0.1; // (~6 degrees from pure vertical 'up')
 
             // Lights
