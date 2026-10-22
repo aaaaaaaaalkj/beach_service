@@ -37,13 +37,17 @@ export const DRAG_CURVES = {
 
 // dragModel: 'vls300' | 'mva200' (measured), 'custom' (drag crisis at criticalSpeed, m/s), 'constant'.
 // knuckleStrength: typical side-force coefficient of a non-spinning ball.
-export const DEFAULT_AERO = { dragModel: 'vls300', criticalSpeed: 12, knuckleStrength: 0.06 };
+// crisisShift: how far the panel orientation moves the drag crisis (relative, ±).
+export const DEFAULT_AERO = { dragModel: 'vls300', criticalSpeed: 12, knuckleStrength: 0.09, crisisShift: 0.07 };
 
 // Knuckling: without spin, the panels and seams stay in place relative to the airflow and the air separates
 // unevenly, pushing the ball sideways. The push depends on how the ball's surface faces the flow, so it
 // changes as the ball slowly turns. Spin averages it out. Wind tunnel data for the Mikasa VLS 300 at 0 rps
 // (Dumek & Šafařík, EPJ Web of Conferences 180, 02021 (2018), Figs. 7 and 9) shows lift and side force
-// coefficients of roughly ±0.05-0.1, in line with the default strength; the orientation dependence is modelled.
+// coefficients of roughly ±0.05-0.1. A hitting robot serving non-rotating balls at 15 m/s over 15 m measured a
+// lateral landing scatter (SD) of 42-72 cm (Hong et al., ISBS 2018); the default strength gives ~40 cm, a bit
+// below, because the robot's own inaccuracy is part of that scatter. The same study found that the panel
+// orientation moves the critical Reynolds number: ±7% for a Mikasa, up to ±17% for 18-panel balls.
 const KNUCKLE_SPIN_SCALE = 0.02;       // Spin parameter Rω/v at which the knuckle force has halved
 const MAX_RESIDUAL_SPIN = 0.5;         // rev/s, leftover spin of a float serve (set per serve by the seed)
 const SURFACE_PATTERN_SEED = 10;       // Fixed: the pattern belongs to the ball, not to the serve
@@ -161,8 +165,8 @@ function randomUnitVector(random) {
     return new Vector3(r * Math.cos(phi), r * Math.sin(phi), z);
 }
 
-// The ball's surface as a smooth random field on the sphere. Its tangential gradient at the point
-// facing the flow gives the direction and size of the side force, in the ball's own frame.
+// The ball's surface as a smooth random field on the sphere, evaluated at the point facing the flow (in the
+// ball's own frame). Its tangential gradient gives the side force; its value (-1..1) shifts the drag crisis.
 const surfacePattern = (() => {
     const random = seededRandom(SURFACE_PATTERN_SEED);
     const terms = Array.from({ length: SURFACE_PATTERN_TERMS }, () => ({
@@ -181,15 +185,31 @@ const surfacePattern = (() => {
         return out.addScaledVector(d, -out.dot(d)); // Remove the radial part
     }
 
-    // Normalise so that the RMS side-force coefficient over all orientations is 1
+    function value(d) {
+        let sum = 0;
+        for (const { normal, frequency, phase, amplitude } of terms) {
+            sum += amplitude * Math.cos(frequency * normal.dot(d) + phase);
+        }
+        return sum;
+    }
+
+    // Normalise: RMS side-force coefficient 1 over all orientations, values within -1..1
     const sampler = seededRandom(SURFACE_PATTERN_SEED + 1);
     const g = new Vector3();
     let sumSq = 0;
+    let maxValue = 0;
     const samples = 4000;
-    for (let i = 0; i < samples; i++) sumSq += gradient(randomUnitVector(sampler), g).lengthSq();
-    const scale = 1 / Math.sqrt(sumSq / samples);
+    for (let i = 0; i < samples; i++) {
+        const d = randomUnitVector(sampler);
+        sumSq += gradient(d, g).lengthSq();
+        maxValue = Math.max(maxValue, Math.abs(value(d)));
+    }
+    const gradientScale = 1 / Math.sqrt(sumSq / samples);
 
-    return (d, out) => gradient(d, out).multiplyScalar(scale);
+    return {
+        sideForce: (d, out) => gradient(d, out).multiplyScalar(gradientScale),
+        value: d => MathUtils.clamp(value(d) / maxValue, -1, 1),
+    };
 })();
 
 // How the ball leaves the hand on a float serve: orientation of its panels and a small leftover spin
@@ -311,28 +331,30 @@ export class ServeSimulation {
         if (relSpeedSq > 1e-8) {
             const relSpeed = Math.sqrt(relSpeedSq);
             const dynamicPressureArea = 0.5 * AIR_DENSITY * BALL_AREA * relSpeedSq;
+            const spinRate = this.angularVelocity.length();
+            const spinParameter = spinRate * BALL_RADIUS / relSpeed;
 
-            // Drag: opposite to the velocity relative to the air
-            out.addScaledVector(relVel, -dragCoefficient(relSpeed, this.aero) * dynamicPressureArea / relSpeed);
+            // Panel effects only act while the panels stay put relative to the flow; spin averages them out
+            const panelEffect = 1 / (1 + (spinParameter / KNUCKLE_SPIN_SCALE) ** 2);
+            const flowInBallFrame = this._flowDir.copy(relVel).divideScalar(-relSpeed)
+                .applyQuaternion(this._inverseOrientation.copy(this.orientation).invert());
+
+            // Drag: opposite to the velocity relative to the air. The panel orientation moves the drag crisis.
+            const crisisFactor = 1 + this.aero.crisisShift * panelEffect * surfacePattern.value(flowInBallFrame);
+            out.addScaledVector(relVel, -dragCoefficient(relSpeed / crisisFactor, this.aero) * dynamicPressureArea / relSpeed);
 
             // Magnus: perpendicular to the spin axis and the relative velocity
-            const spinRate = this.angularVelocity.length();
             if (spinRate > 0) {
-                const spinParameter = spinRate * BALL_RADIUS / relSpeed;
                 const liftCoefficient = 1 / (2 + 1 / spinParameter); // Sphere fit; ≈0.3 at s = 0.85 as measured for the VLS 300
                 this._force.crossVectors(this.angularVelocity, relVel).normalize()
                     .multiplyScalar(liftCoefficient * dynamicPressureArea);
                 out.add(this._force);
             }
 
-            // Knuckle: side force from the panels facing the flow, damped by spin
+            // Knuckle: side force from the panels facing the flow
             if (this.aero.knuckleStrength > 0) {
-                const spinParameter = spinRate * BALL_RADIUS / relSpeed;
-                const damping = 1 / (1 + (spinParameter / KNUCKLE_SPIN_SCALE) ** 2);
-                const flowInBallFrame = this._flowDir.copy(relVel).divideScalar(-relSpeed)
-                    .applyQuaternion(this._inverseOrientation.copy(this.orientation).invert());
-                surfacePattern(flowInBallFrame, this._force).applyQuaternion(this.orientation);
-                out.addScaledVector(this._force, this.aero.knuckleStrength * damping * dynamicPressureArea);
+                surfacePattern.sideForce(flowInBallFrame, this._force).applyQuaternion(this.orientation);
+                out.addScaledVector(this._force, this.aero.knuckleStrength * panelEffect * dynamicPressureArea);
             }
         }
         return out.divideScalar(BALL_MASS);
@@ -452,14 +474,16 @@ export class ServeSimulation {
         const vn = this.velocity.dot(normal);
         if (vn >= 0) return; // Already separating
 
-        const restitution = -vn > MIN_BOUNCE_SPEED ? COR_NET_TAPE : 0;
+        const isImpact = -vn > MIN_BOUNCE_SPEED;
+        const restitution = isImpact ? COR_NET_TAPE : 0;
         const normalImpulse = -(1 + restitution) * vn; // Velocity change along the normal
 
         const tangential = this.velocity.clone().addScaledVector(normal, -vn);
         const tangentialSpeed = tangential.length();
 
         this.velocity.addScaledVector(normal, normalImpulse);
-        if (tangentialSpeed > 1e-6) {
+        // Friction only on impacts: a ball resting on the tape rolls off instead of sticking to it
+        if (isImpact && tangentialSpeed > 1e-6) {
             const frictionDelta = Math.min(TAPE_FRICTION * normalImpulse, tangentialSpeed);
             this.velocity.addScaledVector(tangential, -frictionDelta / tangentialSpeed);
         }
@@ -479,17 +503,18 @@ export function createServe(settings) {
             dragModel: settings.dragModel ?? DEFAULT_AERO.dragModel,
             criticalSpeed: settings.criticalSpeed ?? DEFAULT_AERO.criticalSpeed,
             knuckleStrength: settings.knuckleStrength ?? DEFAULT_AERO.knuckleStrength,
+            crisisShift: settings.crisisShift ?? DEFAULT_AERO.crisisShift,
         },
         floatSeed: settings.floatSeed ?? 1,
     });
 }
 
-// Flight of the same serve without the knuckle force ("ghost"), and the knuckle drift: the largest
+// Flight of the same serve without panel effects ("ghost": no knuckle force, no crisis shift), and the knuckle drift: the largest
 // distance between the real ball and the ghost at the same moment. The drift is null when either ball
 // touched the net tape, because the contact, not the knuckle, then decides the difference.
 export function predictFloat(settings, sampleEvery = 10) {
     const real = createServe(settings);
-    const ghost = createServe({ ...settings, knuckleStrength: 0 });
+    const ghost = createServe({ ...settings, knuckleStrength: 0, crisisShift: 0 });
     const ghostPoints = [ghost.position.clone()];
     let drift = 0;
     let steps = 0;

@@ -69,6 +69,13 @@ test('a serve that is "In" crossed above the net (no tunnelling)', () => {
     }
 });
 
+test('a ball never stays on the tape', () => {
+    for (let seed = 1; seed <= 300; seed++) {
+        const result = serve({ ...SERVE_PRESETS.jumpFloat.male, floatSeed: seed }).runToEnd();
+        assert.notEqual(result.classification, 'Timeout', `seed ${seed}`);
+    }
+});
+
 test('a ball touching the tape can roll over or fall back', () => {
     const outcomes = new Set();
     for (let h = 2.2; h <= 2.8; h += 0.01) {
@@ -150,15 +157,15 @@ test('custom drag crisis: drag drops above the critical speed', () => {
 
 test('drag crisis: a fast float serve carries farther, then brakes harder', () => {
     const settings = { launchSpeed: 17, verticalAngle: 10, contactHeight: 2.8 };
-    const withCrisis = serve({ ...settings, dragModel: 'vls300' });
-    const constant = serve({ ...settings, dragModel: 'constant' });
+    const withCrisis = serve({ ...settings, dragModel: 'vls300', crisisShift: 0 });
+    const constant = serve({ ...settings, dragModel: 'constant', crisisShift: 0 });
     // Early in the flight the supercritical ball has less drag than the constant-drag ball
     for (let i = 0; i < 200; i++) { withCrisis.step(); constant.step(); }
     assert.ok(withCrisis.velocity.length() > constant.velocity.length());
     // Deceleration rises as the ball falls below the critical speed
     const decel = sim => -sim.acceleration(sim.velocity, new Vector3()).dot(sim.velocity.clone().normalize());
-    const fast = serve({ ...settings, launchSpeed: 15 });
-    const slower = serve({ ...settings, launchSpeed: 11 });
+    const fast = serve({ ...settings, launchSpeed: 15, crisisShift: 0 });
+    const slower = serve({ ...settings, launchSpeed: 11, crisisShift: 0 });
     assert.ok(decel(slower) > decel(fast), 'an 11 m/s ball brakes harder than a 15 m/s ball');
 });
 
@@ -217,10 +224,10 @@ test('presets land in for both genders', () => {
 
 test('ghost path: drift is zero without knuckling and the ghost is the knuckle-free flight', () => {
     const settings = { ...BASE, ...SERVE_PRESETS.float.male, floatSeed: 3 };
-    assert.equal(predictFloat({ ...settings, knuckleStrength: 0 }).drift, 0);
+    assert.equal(predictFloat({ ...settings, knuckleStrength: 0, crisisShift: 0 }).drift, 0);
 
     const { ghostPoints, drift } = predictFloat(settings);
-    const ghostLanding = serve({ ...settings, knuckleStrength: 0 }).runToEnd().position;
+    const ghostLanding = serve({ ...settings, knuckleStrength: 0, crisisShift: 0 }).runToEnd().position;
     assert.ok(ghostPoints.at(-1).distanceTo(ghostLanding) < 1e-9);
     assert.ok(drift > 0);
     assert.equal(predictFloat({ ...settings, spin: 8 }).drift < drift, true, 'spin reduces drift');
@@ -239,4 +246,33 @@ test('ghost path: no drift value after a net tape contact', () => {
 test('difficulty rewards knuckle drift', () => {
     const result = serve({}).runToEnd();
     assert.ok(difficultyScore({ ...result, drift: 0.5 }) > difficultyScore({ ...result, drift: 0 }));
+});
+
+test('panel orientation shifts the drag crisis of a float, not of a spinning ball', () => {
+    const settings = { ...BASE, ...SERVE_PRESETS.float.male, knuckleStrength: 0 };
+    const landings = new Set();
+    for (let seed = 1; seed <= 20; seed++) {
+        landings.add(serve({ ...settings, floatSeed: seed }).runToEnd().position.x.toFixed(2));
+    }
+    assert.ok(landings.size > 5, 'different panel orientations should change the flight distance');
+
+    const noShift = serve({ ...settings, floatSeed: 5, crisisShift: 0 }).runToEnd().position;
+    const topspin = { ...settings, spin: 8, floatSeed: 5 };
+    const shifted = serve(topspin).runToEnd().position;
+    const unshifted = serve({ ...topspin, crisisShift: 0 }).runToEnd().position;
+    assert.ok(shifted.distanceTo(unshifted) < 0.01, 'spin averages the panel effect out');
+    assert.ok(noShift.y > 0);
+});
+
+test('calibration: robot float serve scatter (Hong et al. 2018) is matched', () => {
+    // 15 m/s, no spin, ~15 m flight; measured lateral SD 42-72 cm including robot inaccuracy
+    const settings = { ...BASE, contactHeight: 2.6, launchSpeed: 15, verticalAngle: 14.25 };
+    const lateral = [];
+    for (let seed = 1; seed <= 200; seed++) {
+        const result = serve({ ...settings, floatSeed: seed }).runToEnd();
+        if (!result.touchedTape && !result.classification.startsWith('Net')) lateral.push(result.position.z);
+    }
+    const mean = lateral.reduce((a, b) => a + b) / lateral.length;
+    const sd = Math.sqrt(lateral.reduce((s, z) => s + (z - mean) ** 2, 0) / lateral.length);
+    assert.ok(sd > 0.3 && sd < 0.5, `lateral SD ${sd.toFixed(2)} m`);
 });

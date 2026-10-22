@@ -65,6 +65,7 @@ const inputs = {
     dragModel: [$('dragModel'), 'text'],
     criticalSpeed: [$('criticalSpeed'), 'number'],
     knuckleStrength: [$('knuckleStrength'), 'number'],
+    crisisShift: [$('crisisShift'), 'number'],
     ballCam: [enableBallCamCheckbox, 'checkbox'],
 };
 const genderMaleRadio = $('genderMale');
@@ -123,6 +124,7 @@ function updateValueDisplays() {
     $('floatSeedValue').textContent = `#${s.floatSeed}`;
     $('criticalSpeedValue').textContent = `${s.criticalSpeed.toFixed(1)} m/s`;
     $('knuckleStrengthValue').textContent = s.knuckleStrength.toFixed(2);
+    $('crisisShiftValue').textContent = `±${Math.round(s.crisisShift * 100)}%`;
     windControlsDiv.classList.toggle('hidden', !s.windEnabled);
     $('criticalSpeedControls').classList.toggle('hidden', s.dragModel !== 'custom');
 }

@@ -37,12 +37,14 @@ An internet connection is required: Three.js is loaded from unpkg (pinned to 0.1
   15 m/s and ≈ 0.18 above. Below 10 m/s the curve is extrapolated (assumed 0.45). Other choices under
   "Ball aerodynamics": the indoor Mikasa MVA 200 (measured), a custom drag crisis at an adjustable critical
   speed, or a constant Cd of 0.45. Values were read off Fig. 4 of Dumek & Urban (2018), see sources.
-- Knuckling: a float serve gets a side force from how the ball's panels face the airflow. "Ball contact"
-  (a seed) sets the panel orientation at contact and a small leftover spin (up to 0.5 rev/s); the same seed
-  always gives the same flight. Spin averages the effect out, so topspin serves fly true. The strength
-  (default 0.06) matches the order of magnitude measured for a non-spinning VLS 300 (lift and side force
-  coefficients of roughly ±0.05-0.1, Dumek & Šafařík 2018); a pure float then deviates by a median of about
-  25 cm at the receiver. Only one panel orientation was measured, so the orientation pattern itself is modelled.
+- Knuckling: a float serve gets a side force from how the ball's panels face the airflow, and the panel
+  orientation also moves the drag crisis (default ±7%, as measured for a Mikasa ball by Hong et al. 2018), so the
+  late drop varies too. "Ball contact" (a seed) sets the panel orientation at contact and a small leftover spin
+  (up to 0.5 rev/s); the same seed always gives the same flight. Spin averages both effects out, so topspin
+  serves fly true. The knuckle strength (default 0.09) is calibrated against a hitting-robot experiment
+  (non-rotating balls, 15 m/s, 15 m): measured lateral landing scatter 42-72 cm including the robot's own
+  inaccuracy, simulated about 40 cm. It also matches the order of magnitude of the side force measured for a
+  non-spinning VLS 300 (±0.05-0.1, Dumek & Šafařík 2018). The orientation pattern itself is modelled, not measured.
 - Magnus lift coefficient uses the empirical sphere fit `C_L = 1 / (2 + 1/S)` with spin parameter `S = Rω / v`;
   it gives ≈ 0.3 at S = 0.85, close to the VLS 300 wind tunnel value.
 - A ball is **in** when its contact point touches the court, lines included.
@@ -80,8 +82,10 @@ npm test
 - J. Dumek, P. Šafařík: *Complete Description of Forces Acting on a Flying Beach Volleyball*. EPJ Web of Conferences
   180, 02021 (2018), [doi:10.1051/epjconf/201818002021](https://doi.org/10.1051/epjconf/201818002021) — drag, lift and
   side force of the VLS 300 at 10-25 m/s and 0-12.5 rps.
-- S. Hong, T. Asai et al.: *Aerodynamic Effects of a Panel Orientation in Volleyball Float Serve*. ISBS 2018 — the
-  critical Reynolds number changes with panel orientation.
+- S. Hong, B. M. Weon, Y. Nakanishi, K. Kimachi, K. Seo, T. Asai: *Aerodynamic Effects of a Panel Orientation in
+  Volleyball Float Serve*. ISBS Proceedings Archive 36 (2018),
+  [commons.nmu.edu/isbs/vol36/iss1/212](https://commons.nmu.edu/isbs/vol36/iss1/212) — critical Reynolds number per
+  panel orientation; hitting-robot landing scatter used to calibrate the knuckle strength.
 
 ## Credits
 
