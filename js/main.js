@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { COURT_LENGTH, COURT_WIDTH, POLE_DISTANCE, CONTACT_HEIGHT_MEN, CONTACT_HEIGHT_WOMEN } from './constants.js';
 import {
     createServe, servePosition, launchDirection, netHeightFor, windVelocityFrom, difficultyScore, DEFAULT_AERO,
-    floatContact,
+    floatContact, predictFloat, SERVE_PRESETS,
 } from './physics.js';
 import { createBeachScene } from './scene.js';
 
@@ -43,6 +43,7 @@ const results = {
     speed: $('resultFinalSpeed'),
     time: $('resultFlightTime'),
     difficulty: $('resultDifficulty'),
+    drift: $('resultDrift'),
 };
 const settingsFieldsets = ['basicsFieldset', 'launchFieldset', 'environmentFieldset', 'saveLoadFieldset'].map($);
 const cameraFieldset = $('cameraFieldset');
@@ -77,6 +78,7 @@ const clock = new THREE.Clock();
 let phase = Phase.IDLE;
 let serveUsesBallCam = false;
 let serve = null; // ServeSimulation of the current/last serve
+let prediction = null; // Ghost path and knuckle drift of the current serve
 let trajectoryPoints = [];
 let ballCamEndTime = 0;
 const preBallCamPosition = new THREE.Vector3();
@@ -149,13 +151,14 @@ function updateUIState() {
     enableBallCamCheckbox.disabled = busy;
 }
 
-function showResults(result) {
+function showResults(result, drift) {
     results.classification.textContent = result ? result.classification : '-';
     results.classification.className = 'val' + (result ? (result.classification === 'In' ? ' in' : ' fault') : '');
     results.speedLabel.textContent = `${result ? result.speedLabel : 'Landing Speed'}:`;
     results.speed.textContent = result ? `${result.speed.toFixed(1)} m/s` : '- m/s';
     results.time.textContent = result ? `${result.time.toFixed(2)} s` : '- s';
-    results.difficulty.textContent = `${result ? difficultyScore(result) : '-'} / 100`;
+    results.difficulty.textContent = `${result ? difficultyScore({ ...result, drift }) : '-'} / 100`;
+    results.drift.textContent = result ? `${Math.round(drift * 100)} cm` : '- cm';
 }
 
 // Puts ball, net, wind and arrow into the pre-serve state for the current settings
@@ -169,6 +172,7 @@ function resetToSettings() {
     view.clearTrajectory();
     trajectoryPoints = [];
     serve = null;
+    prediction = null;
     showResults(null);
 }
 
@@ -182,6 +186,12 @@ function handleSettingsChange() {
 function rerollFloatSeed() {
     inputs.floatSeed[0].value = 1 + Math.floor(Math.random() * 9999);
     updateValueDisplays();
+}
+
+function applyPreset(name) {
+    const gender = genderFemaleRadio.checked ? 'female' : 'male';
+    applySettings({ gender, ...SERVE_PRESETS[name][gender] });
+    handleSettingsChange();
 }
 
 // Gender sets the net height and the default contact height
@@ -219,7 +229,9 @@ function startServe() {
 }
 
 function startFlight() {
-    serve = createServe(readSettings());
+    const settings = readSettings();
+    serve = createServe(settings);
+    prediction = predictFloat(settings);
     trajectoryPoints = [serve.position.clone()];
     phase = Phase.FLYING;
     updateUIState();
@@ -228,7 +240,8 @@ function startFlight() {
 function endFlight() {
     trajectoryPoints.push(serve.position.clone());
     view.setTrajectory(trajectoryPoints);
-    showResults(serve.result);
+    if (prediction.drift >= 0.01) view.setGhostTrajectory(prediction.ghostPoints); // Only when the ball knuckled
+    showResults(serve.result, prediction.drift);
 
     if (serveUsesBallCam) {
         ballCamEndTime = performance.now();
@@ -400,6 +413,9 @@ function setupUIListeners() {
         el.addEventListener(type === 'number' ? 'input' : 'change', handleSettingsChange);
     }
 
+    document.querySelectorAll('[data-preset]').forEach(button => {
+        button.addEventListener('click', () => applyPreset(button.dataset.preset));
+    });
     $('rerollSeed').addEventListener('click', () => {
         rerollFloatSeed();
         handleSettingsChange();

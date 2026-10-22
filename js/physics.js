@@ -40,6 +40,23 @@ export const RECEIVER_POSITIONS = [
     new Vector3(COURT_LENGTH * 0.3, 0, -COURT_WIDTH * 0.25),
 ];
 
+// Serve presets per gender. Each lands about 6 m past the net (center position, no wind, no knuckle)
+// and clears the net by 0.3 - 0.8 m.
+export const SERVE_PRESETS = {
+    float: {
+        male: { contactHeight: 2.6, launchSpeed: 16.5, verticalAngle: 16, spin: 0 },
+        female: { contactHeight: 2.4, launchSpeed: 17, verticalAngle: 15, spin: 0 },
+    },
+    jumpFloat: {
+        male: { contactHeight: 3.0, launchSpeed: 18, verticalAngle: 8, spin: 0 },
+        female: { contactHeight: 2.8, launchSpeed: 18.5, verticalAngle: 7, spin: 0 },
+    },
+    topspinJump: {
+        male: { contactHeight: 3.2, launchSpeed: 20.5, verticalAngle: 8, spin: 8 },
+        female: { contactHeight: 3.0, launchSpeed: 21.5, verticalAngle: 7, spin: 8 },
+    },
+};
+
 const UP = new Vector3(0, 1, 0);
 
 // --- Settings helpers ---
@@ -170,8 +187,8 @@ export function classifyLanding({ x, z, crossedNet, touchedTape, pendingFault })
     return 'In';
 }
 
-// 0-100; only "In" serves score. Faster, shorter and farther from the receivers is harder.
-export function difficultyScore({ classification, speed, time, position }) {
+// 0-100; only "In" serves score. Faster, shorter, farther from the receivers and more knuckle drift is harder.
+export function difficultyScore({ classification, speed, time, position, drift = 0 }) {
     if (classification !== 'In') return 0;
 
     const landing = new Vector3(position.x, 0, position.z);
@@ -180,8 +197,9 @@ export function difficultyScore({ classification, speed, time, position }) {
     const speedScore = MathUtils.clamp((speed - 10) / (28 - 10), 0, 1);
     const timeScore = MathUtils.clamp((1.8 - time) / (1.8 - 0.6), 0, 1);
     const positionScore = MathUtils.clamp(distanceToReceiver / 3.5, 0, 1);
+    const driftScore = MathUtils.clamp(drift / 0.5, 0, 1); // Unpredictable path
 
-    return Math.round((speedScore * 0.45 + timeScore * 0.25 + positionScore * 0.30) * 100);
+    return Math.round((speedScore * 0.4 + timeScore * 0.2 + positionScore * 0.25 + driftScore * 0.15) * 100);
 }
 
 // --- Simulation ---
@@ -429,4 +447,23 @@ export function createServe(settings) {
         },
         floatSeed: settings.floatSeed ?? 1,
     });
+}
+
+// Flight of the same serve without the knuckle force ("ghost"), and the knuckle drift: the largest
+// distance between the real ball and the ghost at the same moment.
+export function predictFloat(settings, sampleEvery = 10) {
+    const real = createServe(settings);
+    const ghost = createServe({ ...settings, knuckleStrength: 0 });
+    const ghostPoints = [ghost.position.clone()];
+    let drift = 0;
+    let steps = 0;
+    while (!ghost.finished) {
+        ghost.step();
+        if (!real.finished) {
+            real.step();
+            if (!real.finished) drift = Math.max(drift, real.position.distanceTo(ghost.position));
+        }
+        if (++steps % sampleEvery === 0 || ghost.finished) ghostPoints.push(ghost.position.clone());
+    }
+    return { ghostPoints, drift };
 }

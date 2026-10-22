@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { ServeSimulation, createServe, classifyLanding, difficultyScore, netHeightFor, dragCoefficient } from '../js/physics.js';
+import {
+    ServeSimulation, createServe, classifyLanding, difficultyScore, netHeightFor, dragCoefficient, predictFloat, SERVE_PRESETS,
+} from '../js/physics.js';
 import { COURT_WIDTH, COURT_LENGTH, BALL_RADIUS, NET_HEIGHT_MEN, ANTENNA_HEIGHT } from '../js/constants.js';
 
 const BASE = {
@@ -193,4 +195,30 @@ test('knuckle: a float wobbles, spin keeps the ball on its path', () => {
     const topspin = medianDeviation(8, 21.5);
     assert.ok(float > 0.1 && float < 0.5, `float median deviation ${float}`);
     assert.ok(topspin < 0.02, `topspin median deviation ${topspin}`);
+});
+
+test('presets land in for both genders', () => {
+    for (const [name, byGender] of Object.entries(SERVE_PRESETS)) {
+        for (const [gender, preset] of Object.entries(byGender)) {
+            const result = serve({ gender, ...preset, knuckleStrength: 0 }).runToEnd();
+            assert.equal(result.classification, 'In', `${name} (${gender})`);
+            assert.ok(!result.touchedTape, `${name} (${gender}) should clear the tape`);
+        }
+    }
+});
+
+test('ghost path: drift is zero without knuckling and the ghost is the knuckle-free flight', () => {
+    const settings = { ...BASE, ...SERVE_PRESETS.float.male, floatSeed: 3 };
+    assert.equal(predictFloat({ ...settings, knuckleStrength: 0 }).drift, 0);
+
+    const { ghostPoints, drift } = predictFloat(settings);
+    const ghostLanding = serve({ ...settings, knuckleStrength: 0 }).runToEnd().position;
+    assert.ok(ghostPoints.at(-1).distanceTo(ghostLanding) < 1e-9);
+    assert.ok(drift > 0);
+    assert.equal(predictFloat({ ...settings, spin: 8 }).drift < drift, true, 'spin reduces drift');
+});
+
+test('difficulty rewards knuckle drift', () => {
+    const result = serve({}).runToEnd();
+    assert.ok(difficultyScore({ ...result, drift: 0.5 }) > difficultyScore({ ...result, drift: 0 }));
 });

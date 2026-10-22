@@ -299,6 +299,7 @@ export function createBeachScene(container) {
     });
 
     let trajectoryLine = null;
+    let ghostLine = null;
 
     // Resize the canvas whenever its container changes size (window resize or panel collapse)
     new ResizeObserver(() => {
@@ -346,7 +347,12 @@ export function createBeachScene(container) {
         },
 
         setTrajectory(points) {
-            this.clearTrajectory();
+            if (trajectoryLine) {
+                scene.remove(trajectoryLine);
+                trajectoryLine.geometry.dispose();
+                trajectoryLine.material.dispose();
+                trajectoryLine = null;
+            }
             if (points.length < 2) return;
             trajectoryLine = new THREE.Line(
                 new THREE.BufferGeometry().setFromPoints(points),
@@ -354,12 +360,25 @@ export function createBeachScene(container) {
             );
             scene.add(trajectoryLine);
         },
+        // Dashed path of the same serve without the knuckle force
+        setGhostTrajectory(points) {
+            if (points.length < 2) return;
+            ghostLine = new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints(points),
+                new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.15, gapSize: 0.1 })
+            );
+            ghostLine.computeLineDistances();
+            scene.add(ghostLine);
+        },
         clearTrajectory() {
-            if (!trajectoryLine) return;
-            scene.remove(trajectoryLine);
-            trajectoryLine.geometry.dispose();
-            trajectoryLine.material.dispose();
+            for (const line of [trajectoryLine, ghostLine]) {
+                if (!line) continue;
+                scene.remove(line);
+                line.geometry.dispose();
+                line.material.dispose();
+            }
             trajectoryLine = null;
+            ghostLine = null;
         },
 
         render() {

@@ -9,9 +9,11 @@ Interactive 3D simulation of a beach volleyball serve, built with [Three.js](htt
 - FIVB court geometry: 16 × 8 m court, net heights for men (2.43 m) and women (2.24 m), antennas, poles
 - Configurable serve: launch position, contact height, speed, vertical/horizontal angle, top/back spin
 - Float serves: drag crisis (late drop) and knuckling (wobble), reproducible per "ball contact" seed
+- Presets for float, jump float and topspin jump serves (men and women)
+- After a float, a dashed line shows the path without knuckling; "Knuckle Drift" is the largest distance between the two
 - Physics with gravity, quadratic air drag, Magnus force (spin) and wind as moving air
 - Net tape contact (ball can bounce back or roll over), net, antenna and crossing-space faults
-- Result classification, landing speed, flight time and a difficulty score
+- Result classification, landing/impact speed, flight time and a difficulty score (speed, reaction time, distance from the receivers, knuckle drift)
 - Camera presets, orbit controls and a "ball's eye" camera
 - 5 save slots (stored in the browser's `localStorage`), including the camera position
 

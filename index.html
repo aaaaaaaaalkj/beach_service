@@ -29,6 +29,12 @@
 
         <fieldset id="launchFieldset">
             <legend>Launch Parameters</legend>
+            <div class="inline-row preset-row">
+                <span>Preset:</span>
+                <button type="button" data-preset="float" title="Standing float serve">Float</button>
+                <button type="button" data-preset="jumpFloat" title="Jump float serve">Jump Float</button>
+                <button type="button" data-preset="topspinJump" title="Topspin jump serve">Topspin Jump</button>
+            </div>
             <div>
                 <label for="launchSpeed">Speed: <span id="launchSpeedValue" class="value-display">15.0 m/s</span></label>
                 <input type="range" id="launchSpeed" min="5" max="30" value="15" step="0.5">
@@ -97,15 +103,17 @@
 
         <button id="serveButton">Serve!</button>
 
-        <div id="results">
-            <h3>Results</h3>
+        <fieldset id="results">
+            <legend>Results</legend>
             <div class="grid">
                 <p class="wide"><span>Classification:</span><span id="resultClassification" class="val">-</span></p>
                 <p class="wide"><span id="resultSpeedLabel">Landing Speed:</span><span id="resultFinalSpeed" class="val">- m/s</span></p>
                 <p><span>Flight Time:</span><span id="resultFlightTime" class="val">- s</span></p>
                 <p><span>Difficulty:</span><span id="resultDifficulty" class="val">- / 100</span></p>
+                <p class="wide" title="Largest distance from the path the ball would take without knuckling (dashed line)">
+                    <span>Knuckle Drift <span class="hint">(vs. dashed path)</span>:</span><span id="resultDrift" class="val">- cm</span></p>
             </div>
-        </div>
+        </fieldset>
 
         <fieldset id="saveLoadFieldset" style="margin-top: auto;"> <!-- Push save/load towards bottom -->
             <legend>Save/Load Settings</legend>
@@ -115,7 +123,7 @@
             <div id="saveStatus" role="status"></div>
         </fieldset>
 
-        <div id="attribution" style="font-size: 0.7em; color: #666; padding-top: 6px; border-top: 1px solid #eee; line-height: 1.35;">
+        <div id="attribution" style="font-size: 0.7em; color: #666; padding-top: 3px; border-top: 1px solid #eee; line-height: 1.35;">
             Sand texture <a href="https://www.the3rdsequence.com/texturedb/texture/43/smooth+sand+dunes/" target="_blank" rel="noopener noreferrer">"Smooth sand dunes"</a>
             by the3rdSequence,
             <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>;

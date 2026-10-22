@@ -22,7 +22,7 @@ fieldset {
     border: 1px solid #ddd;
     border-radius: 4px;
     padding: 8px 10px 10px 10px;
-    margin: 0 0 10px 0;
+    margin: 0 0 6px 0;
 }
 fieldset:disabled { opacity: 0.6; }
 legend { font-weight: bold; padding: 0 5px; font-size: 0.95em; color: #333; }
@@ -34,7 +34,7 @@ button:disabled { cursor: not-allowed; color: #888; }
 #serveButton {
     background-color: #4CAF50; color: white; font-size: 1.1em; border: none; border-radius: 5px; width: 100%;
     padding: 10px;
-    margin: 5px 0 10px 0;
+    margin: 4px 0 7px 0;
     transition: background-color 0.3s;
 }
 #serveButton:hover:not(:disabled) { background-color: #45a049; }
@@ -48,7 +48,8 @@ input[type="radio"] + label { display: inline; font-weight: normal; margin-right
 .camera-buttons button { margin: 0; padding: 5px 2px; font-size: 0.8em; }
 .inline-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .inline-row select { flex-grow: 1; margin-bottom: 0; }
-.seed-row { font-size: 0.85em; }
+.seed-row, .preset-row { font-size: 0.85em; }
+.preset-row button { margin: 0; padding: 3px 6px; font-size: 0.95em; flex-grow: 1; }
 .seed-row .value-display { margin-left: 0; font-family: monospace; }
 .seed-row button { margin: 0; padding: 2px 8px; font-size: 0.95em; }
 .seed-row label { display: inline; font-weight: normal; margin: 0; }
@@ -63,9 +64,8 @@ details summary { cursor: pointer; font-size: 0.85em; color: #333; margin-bottom
     padding: 8px 12px;
     border-radius: 4px;
     border: 1px solid #ddd;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
 }
-#results h3 { margin: 0 0 6px 0; font-size: 1em; text-align: center; border-bottom: 1px solid #e3e3e3; padding-bottom: 4px; }
 #results .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }
 #results p { margin: 0; font-size: 0.85em; display: flex; justify-content: space-between; }
 #results p.wide { grid-column: 1 / -1; }
