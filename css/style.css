@@ -48,6 +48,11 @@ input[type="radio"] + label { display: inline; font-weight: normal; margin-right
 .camera-buttons button { margin: 0; padding: 5px 2px; font-size: 0.8em; }
 .inline-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .inline-row select { flex-grow: 1; margin-bottom: 0; }
+.seed-row { font-size: 0.85em; }
+.seed-row .value-display { margin-left: 0; font-family: monospace; }
+.seed-row button { margin: 0; padding: 2px 8px; font-size: 0.95em; }
+.seed-row label { display: inline; font-weight: normal; margin: 0; }
+.seed-row input[type="checkbox"] { margin: 0 2px 0 0; vertical-align: middle; }
 #ballCamOption label { display: inline; font-weight: normal; }
 details { margin-top: 4px; }
 details summary { cursor: pointer; font-size: 0.85em; color: #333; margin-bottom: 4px; }

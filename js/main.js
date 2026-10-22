@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { COURT_LENGTH, COURT_WIDTH, POLE_DISTANCE, CONTACT_HEIGHT_MEN, CONTACT_HEIGHT_WOMEN } from './constants.js';
 import {
     createServe, servePosition, launchDirection, netHeightFor, windVelocityFrom, difficultyScore, DEFAULT_AERO,
+    floatContact,
 } from './physics.js';
 import { createBeachScene } from './scene.js';
 
@@ -55,11 +56,14 @@ const inputs = {
     verticalAngle: [$('verticalAngle'), 'number'],
     horizontalAngle: [$('horizontalAngle'), 'number'],
     spin: [$('spin'), 'number'],
+    floatSeed: [$('floatSeed'), 'number'],
+    autoReroll: [$('autoReroll'), 'checkbox'],
     windEnabled: [$('enableWind'), 'checkbox'],
     windStrength: [$('windStrength'), 'number'],
     windDirection: [$('windDirection'), 'number'],
     dragCrisis: [$('dragCrisis'), 'checkbox'],
     criticalSpeed: [$('criticalSpeed'), 'number'],
+    knuckleStrength: [$('knuckleStrength'), 'number'],
     ballCam: [enableBallCamCheckbox, 'checkbox'],
 };
 const genderMaleRadio = $('genderMale');
@@ -113,7 +117,9 @@ function updateValueDisplays() {
     $('spinValue').textContent = `${Math.abs(s.spin).toFixed(1)} rev/s (${spinType})`;
     $('windStrengthValue').textContent = `${s.windStrength.toFixed(1)} m/s`;
     $('windDirectionValue').textContent = `${s.windDirection} °`;
+    $('floatSeedValue').textContent = `#${s.floatSeed}`;
     $('criticalSpeedValue').textContent = `${s.criticalSpeed.toFixed(1)} m/s`;
+    $('knuckleStrengthValue').textContent = s.knuckleStrength.toFixed(2);
     windControlsDiv.classList.toggle('hidden', !s.windEnabled);
     $('dragCrisisControls').classList.toggle('hidden', !s.dragCrisis);
 }
@@ -158,7 +164,7 @@ function resetToSettings() {
     const start = servePosition(s.launchPosition, s.contactHeight);
     view.setNetHeight(netHeightFor(s.gender));
     view.setWind(windVelocityFrom(s.windEnabled, s.windStrength, s.windDirection));
-    view.setBall(start);
+    view.setBall(start, floatContact(s.floatSeed).orientation); // Shows how the panels face the hitter
     view.showServeArrow(start, launchDirection(s.verticalAngle, s.horizontalAngle), s.launchSpeed);
     view.clearTrajectory();
     trajectoryPoints = [];
@@ -172,6 +178,12 @@ function handleSettingsChange() {
     resetToSettings();
 }
 
+// New ball contact: panel orientation and leftover spin for the knuckle effect
+function rerollFloatSeed() {
+    inputs.floatSeed[0].value = 1 + Math.floor(Math.random() * 9999);
+    updateValueDisplays();
+}
+
 // Gender sets the net height and the default contact height
 function handleGenderChange() {
     inputs.contactHeight[0].value = genderMaleRadio.checked ? CONTACT_HEIGHT_MEN : CONTACT_HEIGHT_WOMEN;
@@ -182,6 +194,7 @@ function handleGenderChange() {
 
 function startServe() {
     if (isBusy()) return;
+    if (readSettings().autoReroll) rerollFloatSeed();
     resetToSettings();
     const settings = readSettings();
     view.hideServeArrow();
@@ -363,6 +376,7 @@ function loadSlot(slot) {
     const settings = { ...data.settings };
     settings.contactHeight ??= settings.gender === 'female' ? CONTACT_HEIGHT_WOMEN : CONTACT_HEIGHT_MEN;
     for (const [key, value] of Object.entries(DEFAULT_AERO)) settings[key] ??= value;
+    settings.floatSeed ??= 1;
     applySettings(settings);
     handleSettingsChange();
 
@@ -382,9 +396,14 @@ function setupUIListeners() {
     genderMaleRadio.addEventListener('change', handleGenderChange);
     genderFemaleRadio.addEventListener('change', handleGenderChange);
     for (const [key, [el, type]] of Object.entries(inputs)) {
-        if (key === 'ballCam') continue; // Only affects the next serve
+        if (key === 'ballCam' || key === 'autoReroll') continue; // Only affect the next serve
         el.addEventListener(type === 'number' ? 'input' : 'change', handleSettingsChange);
     }
+
+    $('rerollSeed').addEventListener('click', () => {
+        rerollFloatSeed();
+        handleSettingsChange();
+    });
 
     serveButton.addEventListener('click', startServe);
     quickServeButton.addEventListener('click', startServe);

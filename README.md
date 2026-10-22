@@ -8,6 +8,7 @@ Interactive 3D simulation of a beach volleyball serve, built with [Three.js](htt
 
 - FIVB court geometry: 16 × 8 m court, net heights for men (2.43 m) and women (2.24 m), antennas, poles
 - Configurable serve: launch position, contact height, speed, vertical/horizontal angle, top/back spin
+- Float serves: drag crisis (late drop) and knuckling (wobble), reproducible per "ball contact" seed
 - Physics with gravity, quadratic air drag, Magnus force (spin) and wind as moving air
 - Net tape contact (ball can bounce back or roll over), net, antenna and crossing-space faults
 - Result classification, landing speed, flight time and a difficulty score
@@ -32,6 +33,10 @@ An internet connection is required: Three.js is loaded from unpkg (pinned to 0.1
 - Drag crisis: the drag coefficient depends on the Reynolds number, about 0.5 below and 0.2 above a critical
   speed (default 17 m/s, adjustable under "Ball aerodynamics"; it depends on the ball's surface). These are
   estimates for a volleyball, not measurements of a beach ball. With the drag crisis off, Cd is a constant 0.45.
+- Knuckling: a float serve gets a side force from how the ball's panels face the airflow. "Ball contact"
+  (a seed) sets the panel orientation at contact and a small leftover spin (up to 0.5 rev/s); the same seed
+  always gives the same flight. Spin averages the effect out, so topspin serves fly true. The strength
+  (default 0.06) is an estimate: a pure float then deviates by a median of about 20 cm at the receiver.
 - Magnus lift coefficient uses the empirical sphere fit `C_L = 1 / (2 + 1/S)` with spin parameter `S = Rω / v`.
 - A ball is **in** when its contact point touches the court, lines included.
 - The ball must cross the net between the antennas (and their imaginary extension upwards) and above the net.

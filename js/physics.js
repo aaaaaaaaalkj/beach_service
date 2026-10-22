@@ -18,7 +18,16 @@ const CONSTANT_DRAG_COEFFICIENT = 0.45; // Used when the drag crisis is switched
 const DRAG_SUBCRITICAL = 0.5;           // Slow ball: laminar boundary layer
 const DRAG_SUPERCRITICAL = 0.2;         // Fast ball: turbulent boundary layer
 const DRAG_TRANSITION_WIDTH = 0.06;     // Width of the transition, relative to the critical Reynolds number
-export const DEFAULT_AERO = { dragCrisis: true, criticalSpeed: 17 }; // criticalSpeed in m/s
+// criticalSpeed in m/s; knuckleStrength = typical side-force coefficient of a non-spinning ball
+export const DEFAULT_AERO = { dragCrisis: true, criticalSpeed: 17, knuckleStrength: 0.06 };
+
+// Knuckling: without spin, the panels and seams stay in place relative to the airflow and the air separates
+// unevenly, pushing the ball sideways. The push depends on how the ball's surface faces the flow, so it
+// changes as the ball slowly turns. Spin averages it out.
+const KNUCKLE_SPIN_SCALE = 0.02;       // Spin parameter Rω/v at which the knuckle force has halved
+const MAX_RESIDUAL_SPIN = 0.5;         // rev/s, leftover spin of a float serve (set per serve by the seed)
+const SURFACE_PATTERN_SEED = 10;       // Fixed: the pattern belongs to the ball, not to the serve
+const SURFACE_PATTERN_TERMS = 12;
 
 // Net tape interaction
 const COR_NET_TAPE = 0.3;       // Coefficient of restitution of the tape (normal direction)
@@ -79,6 +88,73 @@ export function dragCoefficient(relSpeed, aero = DEFAULT_AERO) {
     return DRAG_SUPERCRITICAL + (DRAG_SUBCRITICAL - DRAG_SUPERCRITICAL) / (1 + Math.exp(x));
 }
 
+// --- Knuckle force ---
+
+// Small deterministic PRNG (mulberry32); returns a function giving floats in [0, 1)
+export function seededRandom(seed) {
+    let a = seed >>> 0;
+    return () => {
+        a = (a + 0x6D2B79F5) >>> 0;
+        let t = a;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function randomUnitVector(random) {
+    const z = 2 * random() - 1;
+    const phi = 2 * Math.PI * random();
+    const r = Math.sqrt(1 - z * z);
+    return new Vector3(r * Math.cos(phi), r * Math.sin(phi), z);
+}
+
+// The ball's surface as a smooth random field on the sphere. Its tangential gradient at the point
+// facing the flow gives the direction and size of the side force, in the ball's own frame.
+const surfacePattern = (() => {
+    const random = seededRandom(SURFACE_PATTERN_SEED);
+    const terms = Array.from({ length: SURFACE_PATTERN_TERMS }, () => ({
+        normal: randomUnitVector(random),
+        frequency: 1.5 + 2.5 * random(), // Features roughly the size of the panels
+        phase: 2 * Math.PI * random(),
+        amplitude: 0.5 + random(),
+    }));
+
+    // Tangential gradient of the field at unit direction d (written to out)
+    function gradient(d, out) {
+        out.set(0, 0, 0);
+        for (const { normal, frequency, phase, amplitude } of terms) {
+            out.addScaledVector(normal, -amplitude * frequency * Math.sin(frequency * normal.dot(d) + phase));
+        }
+        return out.addScaledVector(d, -out.dot(d)); // Remove the radial part
+    }
+
+    // Normalise so that the RMS side-force coefficient over all orientations is 1
+    const sampler = seededRandom(SURFACE_PATTERN_SEED + 1);
+    const g = new Vector3();
+    let sumSq = 0;
+    const samples = 4000;
+    for (let i = 0; i < samples; i++) sumSq += gradient(randomUnitVector(sampler), g).lengthSq();
+    const scale = 1 / Math.sqrt(sumSq / samples);
+
+    return (d, out) => gradient(d, out).multiplyScalar(scale);
+})();
+
+// How the ball leaves the hand on a float serve: orientation of its panels and a small leftover spin
+export function floatContact(seed) {
+    const random = seededRandom(seed);
+    // Uniform random orientation (Shoemake)
+    const [u1, u2, u3] = [random(), random(), random()];
+    const orientation = new Quaternion(
+        Math.sqrt(1 - u1) * Math.sin(2 * Math.PI * u2),
+        Math.sqrt(1 - u1) * Math.cos(2 * Math.PI * u2),
+        Math.sqrt(u1) * Math.sin(2 * Math.PI * u3),
+        Math.sqrt(u1) * Math.cos(2 * Math.PI * u3)
+    );
+    const residualSpin = randomUnitVector(random).multiplyScalar(MAX_RESIDUAL_SPIN * random() * 2 * Math.PI); // rad/s
+    return { orientation, residualSpin };
+}
+
 // --- Classification and scoring ---
 
 // The ball is in when its contact point touches the court, lines included
@@ -112,8 +188,8 @@ export function difficultyScore({ classification, speed, time, position }) {
 
 export class ServeSimulation {
     // position/velocity: Vector3 at contact; spin: rev/s, positive = topspin; windVelocity: Vector3 (m/s);
-    // aero: { dragCrisis, criticalSpeed }
-    constructor({ position, velocity, netHeight, windVelocity = new Vector3(), spin = 0, aero = DEFAULT_AERO }) {
+    // aero: { dragCrisis, criticalSpeed, knuckleStrength }; floatSeed: panel orientation and leftover spin
+    constructor({ position, velocity, netHeight, windVelocity = new Vector3(), spin = 0, aero = DEFAULT_AERO, floatSeed = 1 }) {
         this.position = position.clone();
         this.prevPosition = position.clone();
         this.velocity = velocity.clone();
@@ -125,9 +201,11 @@ export class ServeSimulation {
         // Spin axis is horizontal and perpendicular to the serve direction:
         // positive spin = topspin (ball dips), negative = backspin (ball floats)
         const horizontalDir = new Vector3(velocity.x, 0, velocity.z).normalize();
+        const contact = floatContact(floatSeed);
         this.angularVelocity = new Vector3().crossVectors(UP, horizontalDir).normalize()
-            .multiplyScalar(spin * 2 * Math.PI); // rad/s, world frame
-        this.orientation = new Quaternion(); // Ball orientation, for rendering
+            .multiplyScalar(spin * 2 * Math.PI) // rad/s, world frame
+            .add(contact.residualSpin);
+        this.orientation = contact.orientation; // Ball orientation (knuckle force and rendering)
 
         this.crossedNet = false;
         this.touchedTape = false;
@@ -142,6 +220,8 @@ export class ServeSimulation {
         this._closest = new Vector3();
         this._normal = new Vector3();
         this._spinStep = new Quaternion();
+        this._flowDir = new Vector3();
+        this._inverseOrientation = new Quaternion();
     }
 
     get finished() {
@@ -190,6 +270,16 @@ export class ServeSimulation {
                 this._force.crossVectors(this.angularVelocity, relVel).normalize()
                     .multiplyScalar(liftCoefficient * dynamicPressureArea);
                 out.add(this._force);
+            }
+
+            // Knuckle: side force from the panels facing the flow, damped by spin
+            if (this.aero.knuckleStrength > 0) {
+                const spinParameter = spinRate * BALL_RADIUS / relSpeed;
+                const damping = 1 / (1 + (spinParameter / KNUCKLE_SPIN_SCALE) ** 2);
+                const flowInBallFrame = this._flowDir.copy(relVel).divideScalar(-relSpeed)
+                    .applyQuaternion(this._inverseOrientation.copy(this.orientation).invert());
+                surfacePattern(flowInBallFrame, this._force).applyQuaternion(this.orientation);
+                out.addScaledVector(this._force, this.aero.knuckleStrength * damping * dynamicPressureArea);
             }
         }
         return out.divideScalar(BALL_MASS);
@@ -335,6 +425,8 @@ export function createServe(settings) {
         aero: {
             dragCrisis: settings.dragCrisis ?? DEFAULT_AERO.dragCrisis,
             criticalSpeed: settings.criticalSpeed ?? DEFAULT_AERO.criticalSpeed,
+            knuckleStrength: settings.knuckleStrength ?? DEFAULT_AERO.knuckleStrength,
         },
+        floatSeed: settings.floatSeed ?? 1,
     });
 }

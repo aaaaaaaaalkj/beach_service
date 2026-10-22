@@ -151,3 +151,46 @@ test('drag crisis: a fast float serve carries farther, then brakes harder', () =
     const slower = serve({ ...settings, launchSpeed: 16 });
     assert.ok(decel(slower) > decel(fast), 'a 16 m/s ball brakes harder than a 19 m/s ball');
 });
+
+// Position where a serve reaches the receiver plane x = 5 m
+function atReceiver(settings) {
+    let hit = null;
+    serve(settings).runToEnd(sim => { if (!hit && sim.position.x >= 5) hit = sim.position.clone(); });
+    return hit;
+}
+
+test('knuckle: the same ball contact gives the same flight', () => {
+    const a = serve({ floatSeed: 42, contactHeight: 2.6, launchSpeed: 17, verticalAngle: 11.5 }).runToEnd();
+    const b = serve({ floatSeed: 42, contactHeight: 2.6, launchSpeed: 17, verticalAngle: 11.5 }).runToEnd();
+    assert.ok(a.position.distanceTo(b.position) === 0);
+    const c = serve({ floatSeed: 43, contactHeight: 2.6, launchSpeed: 17, verticalAngle: 11.5 }).runToEnd();
+    assert.ok(a.position.distanceTo(c.position) > 0.01, 'different contacts should float differently');
+});
+
+test('knuckle: the side force is perpendicular to the flight direction', () => {
+    const settings = { floatSeed: 7, contactHeight: 2.6, launchSpeed: 17, verticalAngle: 11.5 };
+    const withKnuckle = serve(settings);
+    const without = serve({ ...settings, knuckleStrength: 0 });
+    const difference = withKnuckle.acceleration(withKnuckle.velocity, new Vector3())
+        .sub(without.acceleration(without.velocity, new Vector3()));
+    assert.ok(difference.length() > 0.1, 'knuckle force should be noticeable');
+    assert.ok(Math.abs(difference.dot(withKnuckle.velocity.clone().normalize())) < 1e-9);
+});
+
+test('knuckle: a float wobbles, spin keeps the ball on its path', () => {
+    const medianDeviation = (spin, verticalAngle) => {
+        const deviations = [];
+        for (let seed = 1; seed <= 60; seed++) {
+            const settings = { floatSeed: seed, spin, contactHeight: 2.6, launchSpeed: 17, verticalAngle };
+            const real = atReceiver(settings);
+            const ghost = atReceiver({ ...settings, knuckleStrength: 0 });
+            if (real && ghost) deviations.push(real.distanceTo(ghost));
+        }
+        deviations.sort((x, y) => x - y);
+        return deviations[Math.floor(deviations.length / 2)];
+    };
+    const float = medianDeviation(0, 11.5);
+    const topspin = medianDeviation(8, 21.5);
+    assert.ok(float > 0.1 && float < 0.5, `float median deviation ${float}`);
+    assert.ok(topspin < 0.02, `topspin median deviation ${topspin}`);
+});

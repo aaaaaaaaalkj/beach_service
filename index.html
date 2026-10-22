@@ -45,6 +45,13 @@
                 <label for="spin">Spin: <span id="spinValue" class="value-display">0.0 rev/s (float)</span> <span class="hint">(- Back / + Top)</span></label>
                 <input type="range" id="spin" min="-5" max="15" value="0" step="0.5">
             </div>
+            <div class="inline-row seed-row" title="How the panels face the hitter and the small leftover spin. This decides how a float serve knuckles.">
+                <span>Ball contact:</span>
+                <span id="floatSeedValue" class="value-display">#1</span>
+                <input type="hidden" id="floatSeed" value="1">
+                <button id="rerollSeed" type="button">🎲 New</button>
+                <label for="autoReroll"><input type="checkbox" id="autoReroll"> every serve</label>
+            </div>
         </fieldset>
 
         <fieldset id="environmentFieldset">
@@ -68,6 +75,9 @@
                     <label for="criticalSpeed">Critical Speed: <span id="criticalSpeedValue" class="value-display">17.0 m/s</span></label>
                     <input type="range" id="criticalSpeed" min="12" max="25" value="17" step="0.5">
                 </div>
+                <label for="knuckleStrength">Knuckle Effect: <span id="knuckleStrengthValue" class="value-display">0.06</span>
+                    <span class="hint">(side force without spin)</span></label>
+                <input type="range" id="knuckleStrength" min="0" max="0.15" value="0.06" step="0.01">
             </details>
         </fieldset>
 
