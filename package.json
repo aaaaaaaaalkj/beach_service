@@ -1,0 +1,12 @@
+{
+  "name": "beach-service",
+  "private": true,
+  "type": "module",
+  "description": "3D beach volleyball serve simulation",
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "three": "0.160.0"
+  }
+}

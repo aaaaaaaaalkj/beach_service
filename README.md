@@ -38,10 +38,25 @@ An internet connection is required: Three.js is loaded from unpkg (pinned to 0.1
 
 | Path | Purpose |
 | --- | --- |
-| `index.html` | The simulation |
+| `index.html` | Page markup and import map |
+| `css/style.css` | Styles |
+| `js/constants.js` | Court, ball and environment constants |
+| `js/physics.js` | Ball flight, collisions, line calls and scoring (no DOM, testable in Node) |
+| `js/scene.js` | Three.js scene: court, net, ball, arrows, trajectory |
+| `js/main.js` | UI, serve flow (phases), cameras, save slots |
+| `test/` | Physics tests |
 | `sand.jpg` | Sand texture (see credits) |
 | `beachvolleyball.png` | Equirectangular ball texture |
 | `prototypes/` | Earlier experiments: ball texture generators, serve success plot, first simulation version |
+
+## Tests
+
+The physics runs without a browser, so it is tested with Node's built-in test runner:
+
+```sh
+npm install   # installs three.js for Node (dev only)
+npm test
+```
 
 ## Credits
 
