@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Volleyball Texture (Debug: 2 Panels - Blue & Yellow)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #222; color: #eee; }
+        canvas#textureCanvas {
+             position: absolute; top: 10px; left: 10px; width: 200px !important; height: 100px !important; border: 1px solid red; z-index: 10;
+             /* display: none; */
+        }
+        #debugInfo {
+            position: absolute; top: 120px; left: 10px; background-color: rgba(0,0,0,0.8); padding: 8px; font-family: monospace; font-size: 10px; color: #fff; z-index: 10; max-height: 500px; width: 400px; overflow-y: auto; border: 1px solid #555; line-height: 1.2;
+        }
+        strong.fail { color: #ff7777; }
+        strong.pass { color: #77ff77; }
+        .panel-name { font-weight: bold; }
+        .debug-detail { color: #bbb; margin-left: 10px; }
+        .debug-highlight { color: #ffeeaa; font-weight: bold;}
+        .debug-check { color: #aaa; }
+        .fail-detail { color: #ffaaaa; margin-left: 5px; display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="textureCanvas"></canvas>
+    <div id="debugInfo">Debug Info Loading...</div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls, ball;
+        let allCornersData = [];
+        let cornerMap = new Map();
+        let debugInfoElement;
+        let processedPanels = [];
+
+        // --- Texture Settings ---
+        const textureWidth = 1024; const textureHeight = 512;
+        const panelColorBlue = new THREE.Color(0x005bbb);
+        const panelColorYellow = new THREE.Color(0xffd500);
+        // const panelColorWhite = new THREE.Color(0xffffff); // Removed
+        const borderColor = new THREE.Color(0x111111);
+        const backgroundColor = new THREE.Color(0x444444);
+        const angleTolerance = 1e-5;
+        const borderPlaneTolerance = 1e-5;
+        const borderSegmentDotTolerance = 1e-6;
+        const vertexProximityAngleTolerance = 1e-4;
+        const panelCenterAntipodalThreshold = -0.5;
+
+        // --- Calculate Corner Coordinates (Explicit Y-Up) ---
+        function calculateVolleyballCorners(circumference) {
+             if (!circumference || circumference <= 0) { console.error("Invalid circumference."); return []; }
+            const R = circumference / (2 * Math.PI);
+            const dist_NP_to_C1 = 12.5; const dist_C1_to_C2 = 6.7; const dist_C1_to_C3 = 1.4;
+            const theta1 = dist_NP_to_C1 / R; const theta2 = (dist_NP_to_C1 + dist_C1_to_C2) / R;
+            const r_small_at_theta1 = Math.sin(theta1);
+            let delta_phi3 = 0;
+            if (r_small_at_theta1 > 1e-6) { delta_phi3 = dist_C1_to_C3 / (R * r_small_at_theta1); }
+            else { console.warn("Corner 1 close to pole, delta_phi3 might be inaccurate."); }
+            const corners = []; const R_unit = 1.0;
+            const baseSectorCorners = [
+				{ name: 'N_C1_S0', spherical: { r : R_unit, theta: theta1, phi: 0 } },
+				{ name: 'N_C2_S0', spherical: { r : R_unit, theta: theta2, phi: 0 } },
+				{ name: 'N_C3_L0', spherical: { r : R_unit, theta: theta1, phi: delta_phi3 } },
+				{ name: 'N_C3_R0', spherical: { r : R_unit, theta: theta1, phi: (2 * Math.PI - delta_phi3 + 2*Math.PI) % (2 * Math.PI) } },
+			];
+            corners.push(...baseSectorCorners);
+            const rotatedCorners = []; const rotationAngle = Math.PI;
+            baseSectorCorners.forEach(c => { const rotatedPhi = (c.spherical.phi + rotationAngle) % (2 * Math.PI); let rotatedName = c.name.replace('_S0', '_S1').replace('_L0', '_L1').replace('_R0', '_R1'); rotatedCorners.push({ name: rotatedName, spherical: { r: R_unit, theta: c.spherical.theta, phi: rotatedPhi } }); });
+            corners.push(...rotatedCorners);
+            const southernCorners = []; const southRotation = Math.PI / 2;
+            const northernCorners = corners.slice();
+            northernCorners.forEach(nc => { if(nc.name.startsWith('S_')) return; const southTheta = Math.PI - nc.spherical.theta; const southPhi = (nc.spherical.phi + southRotation) % (2 * Math.PI); const southName = nc.name.replace('N_', 'S_'); southernCorners.push({ name: southName, spherical: { r: R_unit, theta: southTheta, phi: southPhi } }); });
+            corners.push(...southernCorners);
+            corners.forEach(c => {
+                c.cartesian = new THREE.Vector3(); const r = c.spherical.r; const theta = c.spherical.theta; const phi = c.spherical.phi;
+                const sinT = Math.sin(theta); const cosT = Math.cos(theta); const sinP = Math.sin(phi); const cosP = Math.cos(phi);
+                c.cartesian.x = r * sinT * cosP; c.cartesian.y = r * cosT; c.cartesian.z = -r * sinT * sinP;
+                c.cartesian.normalize();
+            });
+            console.log(`Calculated ${corners.length} corners.`);
+            return corners;
+        }
+
+
+        // --- Panel Definitions (ROLLBACK TO 2 PANELS) ---
+        const panelDefinitions = [
+            { color: panelColorBlue,   name: "N Pole Blue",     corners: [ 'N_C1_S0', 'N_C3_L0', 'N_C3_R1', 'N_C1_S1', 'N_C3_L1', 'N_C3_R0' ] }, // Panel 0
+            //{ color: panelColorYellow, name: "N Hemi Yellow 1", corners: [ 'N_C1_S0', 'N_C3_L0', 'N_C3_R1', 'N_C1_S1', 'N_C2_S1', 'N_C2_S0' ] }, // Panel 1
+        ];
+
+        // --- Helper: Robust Point in Spherical Polygon Test ---
+        // (Keep the refined function isPointInSphericalPolygon from previous step)
+        function isPointInSphericalPolygon(pointP, polygonVertices, polygonCenter, debugLabel = null) {
+            if (!polygonVertices || polygonVertices.length < 3 || !polygonCenter) return -1;
+            const p = pointP.clone().normalize(); const vertices = polygonVertices.map(v => v.clone().normalize()); const n = vertices.length;
+            const detailedDebug = debugLabel && (debugLabel.includes("South Pole") || debugLabel.includes("Equator") || debugLabel.includes("Near Border") ); // Simplified debug points
+
+            if (detailedDebug) console.log(`--- Testing Point: ${debugLabel} [${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}] vs Panel ${debugLabel.split(' vs ')[1]} ---`);
+
+            // 1. Panel Center Antipodal Check
+            const dotPCenter = p.dot(polygonCenter);
+            if (detailedDebug) console.log(`<span class="debug-check"> Center Check: P.center = ${dotPCenter.toFixed(3)} (Thresh: ${panelCenterAntipodalThreshold})</span>`);
+            if (dotPCenter < panelCenterAntipodalThreshold) { if (detailedDebug) console.log(`<span class="debug-highlight"> Result ${debugLabel}: OUTSIDE (Panel Center Antipodal Check)</span>`); return -1; }
+
+            // 2. Border Checks
+            const vec_i = new THREE.Vector3(); const vec_i_plus_1 = new THREE.Vector3(); const cross_vi_vi1 = new THREE.Vector3();
+            // 2a. Vertex Proximity
+            for (let i = 0; i < n; i++) { vec_i.copy(vertices[i]); if (p.angleTo(vec_i) < vertexProximityAngleTolerance) { if (detailedDebug) console.log(` Result ${debugLabel}: BORDER (Close to vertex ${i} angle: ${p.angleTo(vec_i).toExponential(2)})`); return 0; } }
+            // 2b. Edge Proximity
+            for (let i = 0; i < n; i++) {
+                vec_i.copy(vertices[i]); vec_i_plus_1.copy(vertices[(i + 1) % n]); cross_vi_vi1.crossVectors(vec_i, vec_i_plus_1); const len_cross_vi_vi1 = cross_vi_vi1.length(); if (len_cross_vi_vi1 < 1e-9) { if (detailedDebug) console.log(` Border Check: Skipping degenerate edge ${i}`); continue; } cross_vi_vi1.normalize();
+                const pointPlaneDist = p.dot(cross_vi_vi1);
+                if (Math.abs(pointPlaneDist) < borderPlaneTolerance) {
+                    if (detailedDebug) console.log(` Border Check: Pt ${debugLabel} near edge ${i} plane (dist=${pointPlaneDist.toExponential(2)}). Checking segment...`);
+                    const dotPVi = p.dot(vec_i); const dotPVip1 = p.dot(vec_i_plus_1); const dotViVip1 = vec_i.dot(vec_i_plus_1);
+                    if (detailedDebug) { console.log(`  <span class="debug-detail"> Dot Checks: P.Vi=${dotPVi.toFixed(4)}, P.Vi+1=${dotPVip1.toFixed(4)}, Vi.Vi+1=${dotViVip1.toFixed(4)}</span>`); }
+                    if (dotPVi > dotViVip1 - borderSegmentDotTolerance && dotPVip1 > dotViVip1 - borderSegmentDotTolerance) { if (detailedDebug) console.log(`  <span class="debug-highlight"> Result ${debugLabel}: BORDER (On edge ${i} segment, dot product check passed)</span>`); return 0; }
+                    else { if (detailedDebug) console.log(`  <span class="debug-detail"> Dot product check FAILED. Point on great circle but not segment ${i}.</span>`); }
+                }
+            }
+
+            // 3. Sum of Angles Calculation (Fallback)
+            let angleSum = 0; const cross_p_vi = new THREE.Vector3(); const cross_p_vi_plus_1 = new THREE.Vector3();
+            for (let i = 0; i < n; i++) {
+                vec_i.copy(vertices[i]); vec_i_plus_1.copy(vertices[(i + 1) % n]); cross_p_vi.crossVectors(p, vec_i); cross_p_vi_plus_1.crossVectors(p, vec_i_plus_1); const len_p_vi_sq = cross_p_vi.lengthSq(); const len_p_vi_plus_1_sq = cross_p_vi_plus_1.lengthSq(); if (len_p_vi_sq < 1e-15 || len_p_vi_plus_1_sq < 1e-15) { continue; }
+                const dotNormals = cross_p_vi.dot(cross_p_vi_plus_1); const lenProduct = Math.sqrt(len_p_vi_sq * len_p_vi_plus_1_sq); let cosAngle = dotNormals / lenProduct; cosAngle = Math.max(-1.0, Math.min(1.0, cosAngle)); let angle = Math.acos(cosAngle); if (isNaN(angle)) { continue; }
+                cross_vi_vi1.crossVectors(vec_i, vec_i_plus_1); const tripleProduct = p.dot(cross_vi_vi1); if (Math.abs(tripleProduct) < 1e-10) { continue; }
+                angleSum += Math.sign(tripleProduct) * angle;
+            }
+
+            // 4. Check Final Sum
+            const twoPi = 2 * Math.PI;
+            if (Math.abs(Math.abs(angleSum) - twoPi) < angleTolerance) { if (detailedDebug) console.log(` Result ${debugLabel}: INSIDE (Angle Sum ~ +/-2*PI: ${angleSum.toFixed(5)})`); return 1; }
+            else { if (detailedDebug) { if (Math.abs(angleSum) < angleTolerance) console.log(` Result ${debugLabel}: OUTSIDE (Angle Sum ~ 0: ${angleSum.toFixed(5)})`); else console.warn(` Result ${debugLabel}: OUTSIDE (Ambiguous Angle Sum: ${angleSum.toFixed(5)})`); } return -1; }
+        }
+
+
+        // --- Generate Texture Data ---
+        function generateVolleyballTexturePolygon(canvas) {
+            canvas.width = textureWidth; canvas.height = textureHeight;
+            const ctx = canvas.getContext('2d'); if (!ctx) return;
+            if (processedPanels.length === 0) { console.error("No panels processed!"); return; }
+
+            console.log(`Generating texture for ${processedPanels.length} panel(s)...`);
+            debugInfoElement.innerHTML = `Generating Texture (${textureWidth}x${textureHeight})...`;
+            debugInfoElement.innerHTML += `<br>Panels: ${processedPanels.map(p=>`<span class="panel-name">${p.name}</span>`).join(', ')}`;
+
+            // --- Pre-computation Sanity Checks ---
+            console.log("\n--- Running Pre-computation Tests ---");
+            debugInfoElement.innerHTML += `<br>--- Sanity Checks (2 Panels) ---`;
+            const testNP = new THREE.Vector3(0, 1, 0);
+            const testSP = new THREE.Vector3(0, -1, 0); // Now expect Background
+            const testEq0 = new THREE.Vector3(1, 0, 0); // Expect Border of Yellow
+            const testEqPi = new THREE.Vector3(-1, 0, 0); // Expect Border of Yellow
+            const testMidYellow = new THREE.Vector3(0, 0.5, -0.866).normalize(); // Expect Yellow
+            const testNearBorder = cornerMap.get('N_C1_S0')?.clone().lerp(cornerMap.get('N_C2_S0'), 0.01).normalize(); // Near Blue/Yellow border
+
+            let allTestsPassed = true;
+            function runTest(point, expectedPanelIndex, pointName) {
+                // (runTest function logic remains unchanged from previous version)
+                if (!point) { debugInfoElement.innerHTML += `<br>${pointName}: <strong class="fail">SKIPPED (Corner Lookup Failed)</strong>`; allTestsPassed = false; return false; }
+                let actualPanelIndex = -1; let borderOfPanel = -1; let insidePanel = -1; let testResultsLog = [];
+                console.log(`\n--- Testing Point: ${pointName} (${point.x.toFixed(2)},${point.y.toFixed(2)},${point.z.toFixed(2)}) ---`);
+                for(let i=0; i < processedPanels.length; i++) { // Loop only through the 2 defined panels
+                     const panel = processedPanels[i]; const debugLabel = `${pointName} vs ${panel.name}`; const result = isPointInSphericalPolygon(point, panel.vertices, panel.center, debugLabel); let resultString = "OUTSIDE";
+                     if (result === 1) { console.log(`   Point INSIDE ${panel.name}`); resultString = "INSIDE"; if (insidePanel === -1) { actualPanelIndex = i; } insidePanel = i; }
+                     else if (result === 0) { console.log(`   Point BORDER on ${panel.name}`); resultString = "BORDER"; if (borderOfPanel === -1) borderOfPanel = i; }
+                     else { console.log(`   Point OUTSIDE ${panel.name}`); } testResultsLog.push(`P${i}(${panel.name}): ${resultString}`);
+                 }
+                 console.log(`--- Test Complete: ${pointName} ---`);
+                 if (insidePanel !== -1) { actualPanelIndex = insidePanel; } else if (borderOfPanel !== -1) { actualPanelIndex = -2; } else { actualPanelIndex = -1; }
+                 const pass = actualPanelIndex === expectedPanelIndex;
+                 let resultDesc = "Background"; if (actualPanelIndex === -2) resultDesc = `BORDER (via P${borderOfPanel} ${processedPanels[borderOfPanel]?.name || ''})`; else if (actualPanelIndex >= 0) resultDesc = `INSIDE (P${actualPanelIndex} ${processedPanels[actualPanelIndex]?.name || ''})`;
+                 let expectedDesc = "Background"; if (expectedPanelIndex === -2) expectedDesc = "BORDER"; else if (expectedPanelIndex >= 0) expectedDesc = `INSIDE (P${expectedPanelIndex} ${processedPanels[expectedPanelIndex]?.name || ''})`;
+                 debugInfoElement.innerHTML += `<br>${pointName}: Result=<span class="panel-name">${resultDesc}</span>, Expected=<span class="panel-name">${expectedDesc}</span> -> ${pass ? '<strong class="pass">PASS</strong>' : '<strong class="fail">FAIL</strong>'}`; if (!pass) allTestsPassed = false; return pass;
+            }
+
+            // *** REVISED EXPECTATIONS FOR 2 PANELS ***
+            // Expected indices: -1=BG, -2=Border, 0=N Blue, 1=N Yellow
+            runTest(testNP, 0, "North Pole");
+            runTest(testSP, -1, "South Pole");         // EXPECTED -1 (Background)
+            runTest(testEq0, -2, "Equator Phi=0");     // EXPECTED -2 (Border of Yellow)
+            runTest(testEqPi, -2, "Equator Phi=PI");   // EXPECTED -2 (Border of Yellow)
+            runTest(testMidYellow, 1, "Mid Yellow Panel Area"); // EXPECTED 1 (Yellow)
+            runTest(testNearBorder, -2, "Near N Panel Borders"); // EXPECTED -2 (Border of Yellow/Blue)
+            // ******************************************
+
+            console.log("--- Pre-computation Tests Complete ---");
+            if (!allTestsPassed) { console.error("FAILURE: Sanity checks failed."); debugInfoElement.innerHTML += "<br><strong class='fail'>SANITY CHECKS FAILED! Check console.</strong>"; }
+            else { debugInfoElement.innerHTML += "<br><strong class='pass'>SANITY CHECKS PASSED.</strong>"; } debugInfoElement.innerHTML += `<br>--- Pixel Counts ---`;
+
+            // --- Pixel Loop ---
+            const imageData = ctx.createImageData(textureWidth, textureHeight); const data = imageData.data; const currentPoint = new THREE.Vector3(); let insideCount = 0; let borderCount = 0; let outsideCount = 0;
+            for (let y = 0; y < textureHeight; y++) {
+                for (let x = 0; x < textureWidth; x++) {
+                    const u = x / (textureWidth - 1); const v = y / (textureHeight - 1); const theta = v * Math.PI; const phi = u * 2 * Math.PI; const r = 1.0; const sinT = Math.sin(theta); const cosT = Math.cos(theta); const sinP = Math.sin(phi); const cosP = Math.cos(phi); currentPoint.x = r * sinT * cosP; currentPoint.y = r * cosT; currentPoint.z = -r * sinT * sinP;
+                    let pixelColor = backgroundColor; let isInside = false; let isBorder = false;
+                    // Loop only through the 2 processed panels
+                    for (let i = 0; i < processedPanels.length; i++) {
+                        const panel = processedPanels[i];
+                        const result = isPointInSphericalPolygon(currentPoint, panel.vertices, panel.center);
+                        if (result === 1) { pixelColor = panel.color; isInside = true; break; }
+                        else if (result === 0) { isBorder = true; }
+                    }
+                    if (isInside) { insideCount++; } else if (isBorder) { pixelColor = borderColor; borderCount++; } else { outsideCount++; }
+                    const pixelIndex = (y * textureWidth + x) * 4; data[pixelIndex] = Math.round(pixelColor.r * 255); data[pixelIndex + 1] = Math.round(pixelColor.g * 255); data[pixelIndex + 2] = Math.round(pixelColor.b * 255); data[pixelIndex + 3] = 255;
+                }
+            }
+            ctx.putImageData(imageData, 0, 0); console.log("Texture generation complete."); const totalPixels = textureWidth * textureHeight; debugInfoElement.innerHTML += `<br>Inside (Any Panel): ${insideCount} (${(100*insideCount/totalPixels).toFixed(1)}%)` + `<br>Border: ${borderCount} (${(100*borderCount/totalPixels).toFixed(1)}%)` + `<br>Outside: ${outsideCount} (${(100*outsideCount/totalPixels).toFixed(1)}%)`;
+        }
+
+        // --- Basic Three.js Setup ---
+        function init() {
+            debugInfoElement = document.getElementById('debugInfo'); debugInfoElement.innerHTML = "Initializing...";
+            scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000); camera.position.set(0, 0, 2.5);
+            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.outputColorSpace = THREE.SRGBColorSpace; document.body.appendChild(renderer.domElement);
+            controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.dampingFactor = 0.05;
+            const ballCircumference = 67;
+            console.log("Calculating corner coordinates...");
+            allCornersData = calculateVolleyballCorners(ballCircumference); cornerMap.clear(); allCornersData.forEach(c => cornerMap.set(c.name, c.cartesian));
+			console.log( allCornersData );
+            // --- Process Panel Definitions & Calculate Centers ---
+            processedPanels = panelDefinitions.map(panelDef => { // Will only process the 2 defined panels
+                 const vertices = panelDef.corners.map(name => { const v = cornerMap.get(name); if (!v) console.error(`Corner "${name}" not found for "${panelDef.name}"!`); return v; }).filter(v => v);
+                 if (!vertices) { console.error(`Vertices array is null for "${panelDef.name}"`); return null; }
+                 if (vertices.length !== panelDef.corners.length || vertices.length < 3) { console.error(`Panel "${panelDef.name}" is invalid (corners: ${panelDef.corners.length}, found: ${vertices.length}). Skipping.`); return null; }
+                 const center = new THREE.Vector3(); vertices.forEach(v => center.add(v)); center.normalize();
+                 console.log(`Panel "${panelDef.name}" center: (${center.x.toFixed(3)}, ${center.y.toFixed(3)}, ${center.z.toFixed(3)})`);
+                 return { name: panelDef.name, color: panelDef.color, vertices: vertices, center: center };
+            }).filter(p => p !== null);
+
+            if (processedPanels.length > 0) {
+                const canvas = document.getElementById('textureCanvas');
+                generateVolleyballTexturePolygon(canvas);
+                const generatedTexture = new THREE.CanvasTexture(canvas); generatedTexture.colorSpace = THREE.SRGBColorSpace; generatedTexture.needsUpdate = true;
+                const ballGeometry = new THREE.SphereGeometry(1, 64, 32); const ballMaterial = new THREE.MeshStandardMaterial({ map: generatedTexture, roughness: 0.7, metalness: 0.1, side: THREE.FrontSide });
+                ball = new THREE.Mesh(ballGeometry, ballMaterial); scene.add(ball);
+
+                console.log("Adding debug markers and panel outlines...");
+                const cornerGeom = new THREE.SphereGeometry(0.015);
+                // Only need colors for the 2 panels
+                const panelMarkerColors = [
+                    new THREE.MeshBasicMaterial({ color: 0x00ff00 }), // Panel 0 (N Blue) -> Green Marker
+                    new THREE.MeshBasicMaterial({ color: 0xdddd00 }), // Panel 1 (N Yellow) -> Dark Yellow Marker
+                ];
+                const otherCornerMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                const panelLineColors = [ 0x005bbb, 0xffd500 ]; // Colors for the 2 panels
+
+                allCornersData.forEach(corner => { if (corner.cartesian) { let usedInPanel = -1; for(let i=0; i < processedPanels.length; i++) { if(processedPanels[i].vertices.includes(corner.cartesian)) { usedInPanel = i; break; } } const mat = (usedInPanel !== -1 && panelMarkerColors[usedInPanel]) ? panelMarkerColors[usedInPanel] : otherCornerMat; const marker = new THREE.Mesh(cornerGeom, mat); marker.position.copy(corner.cartesian); scene.add(marker); } });
+
+                const lineGroup = new THREE.Group();
+                processedPanels.forEach((panel, index) => { // Will only loop through the 2 panels
+                    const points = [];
+                    for (let i = 0; i < panel.vertices.length; i++) {
+                         if (!panel.vertices[i]) continue; // Skip if vertex missing
+                         points.push(panel.vertices[i]);
+                         const nextVertex = panel.vertices[(i + 1) % panel.vertices.length];
+                         if (!nextVertex) continue; // Skip if next vertex missing
+                         const midPoint = new THREE.Vector3().addVectors(panel.vertices[i], nextVertex).multiplyScalar(0.5).normalize();
+                         points.push(midPoint);
+                    }
+                     if (panel.vertices.length > 0 && panel.vertices[0]) { points.push(panel.vertices[0]); } // Close loop
+                     if (points.length >= 2) { const curve = new THREE.CatmullRomCurve3(points, false); const curvePoints = curve.getPoints(Math.max(2, panel.vertices.length * 5)); const lineGeometry = new THREE.BufferGeometry().setFromPoints(curvePoints); const lineMaterial = new THREE.LineBasicMaterial({ color: panelLineColors[index % panelLineColors.length], linewidth: 2 }); const panelOutline = new THREE.Line(lineGeometry, lineMaterial); lineGroup.add(panelOutline); } else { console.warn(`Not enough points for outline: ${panel.name}`); }
+                });
+                scene.add(lineGroup);
+
+                const orientMatNP = new THREE.MeshBasicMaterial({ color: 0xff00ff }); const orientMatSP = new THREE.MeshBasicMaterial({ color: 0xffaa00 }); const orientMatPM = new THREE.MeshBasicMaterial({ color: 0x00aaaa }); const orientGeom = new THREE.SphereGeometry(0.02);
+                const npMarker = new THREE.Mesh(orientGeom, orientMatNP); npMarker.position.set(0, 1, 0); scene.add(npMarker); const spMarker = new THREE.Mesh(orientGeom, orientMatSP); spMarker.position.set(0, -1, 0); scene.add(spMarker); const pmMarker = new THREE.Mesh(orientGeom, orientMatPM); pmMarker.position.set(1, 0, 0); scene.add(pmMarker);
+                console.log("Added Panel (Colors), Other (Red), NP (Magenta), SP (Orange), PM (Dark Cyan) markers. Added Panel Outlines.");
+
+            } else { console.error("No valid panels processed."); debugInfoElement.innerHTML = "Error: No valid panels processed."; }
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambientLight); const light1 = new THREE.DirectionalLight(0xffffff, 1.2); light1.position.set(5, 10, 7); scene.add(light1); const light2 = new THREE.DirectionalLight(0xffffff, 0.7); light2.position.set(-5, -10, -5); scene.add(light2);
+            window.addEventListener('resize', onWindowResize); animate(); debugInfoElement.innerHTML += "<br>Ready.";
+        }
+
+        function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+
+        init();
+
+    </script>
+</body>
+</html>

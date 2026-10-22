@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Volleyball Texture (10 Panel Approx)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #222; }
+        canvas#textureCanvas {
+             /* You can optionally display the generated canvas for debugging */
+             /* position: absolute; top: 10px; left: 10px; width: 200px !important; height: 100px !important; border: 1px solid red; z-index: 10; */
+             display: none; /* Hide it for the final result */
+        }
+    </style>
+</head>
+<body>
+    <!-- Canvas to draw the texture onto -->
+    <canvas id="textureCanvas"></canvas>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls, ball;
+
+        // --- Texture Generation Settings ---
+        const textureWidth = 1024; // Power of 2 often preferred
+        const textureHeight = 512; // MUST be width / 2 for equirectangular
+
+        const panelColorBlue = new THREE.Color(0x005bbb); // Blue
+        const panelColorYellow = new THREE.Color(0xffd500); // Yellow
+        const panelColorWhite = new THREE.Color(0xffffff);  // White
+        const borderColor = new THREE.Color(0x111111); // Dark Gray/Black borders
+
+        // --- Border Detection Threshold ---
+        // How close does the ratio of distances (to 2nd closest / to closest)
+        // need to be to trigger drawing a border?
+        // Smaller value = thicker borders. Try values between 1.05 and 1.3.
+        const borderDistanceRatioThreshold = 1.05; // Adjust this to control border thickness
+
+        // --- Approximate 3D Centers for the 10 Panels ---
+        // Based on the description:
+        // - 1 North Pole cap (Blue)
+        // - 2 North side panels (White)
+        // - 2 Equator panels (Yellow, offset 0 deg)
+        // - 2 Equator panels (Blue, offset 90 deg)
+        // - 2 South side panels (White, offset 90 deg from North Whites)
+        // - 1 South Pole cap (Yellow)
+        // Note: This Voronoi approach approximates the layout but won't create perfect swirl shapes.
+
+        const panelCenters = [];
+        const panelCenterColors = []; // We'll assign colors as we create centers
+
+        // Define key latitudes (Theta angle: 0=North Pole, PI=South Pole)
+        const poleLat = 0.01; // Slightly off the pole for numerical stability
+        const sideLat = Math.PI / 4; // Latitude for the 'side' white panels
+        const equatorLat = Math.PI / 2; // Latitude for equator centers
+        const southSideLat = 3 * Math.PI / 4; // Latitude for southern 'side' white panels
+        const southPoleLat = Math.PI - 0.01; // Slightly off the south pole
+
+        // 1. North Pole Center (Blue)
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, poleLat, 0));
+        panelCenterColors.push(panelColorBlue);
+
+        // 2 & 3. North Side Centers (White) - Place opposite each other
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, sideLat, 0)); // Phi = 0
+        panelCenterColors.push(panelColorWhite);
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, sideLat, Math.PI)); // Phi = PI (180 deg)
+        panelCenterColors.push(panelColorWhite);
+
+        // 4 & 5. Equator Centers (Yellow) - Opposite each other, aligned with North Whites
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, equatorLat, 0)); // Phi = 0
+        panelCenterColors.push(panelColorYellow);
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, equatorLat, Math.PI)); // Phi = PI
+        panelCenterColors.push(panelColorYellow);
+
+        // 6 & 7. Equator Centers (Blue) - Opposite, Rotated 90 deg from Yellows
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, equatorLat, Math.PI / 2)); // Phi = PI/2 (90 deg)
+        panelCenterColors.push(panelColorBlue);
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, equatorLat, 3 * Math.PI / 2)); // Phi = 3PI/2 (270 deg)
+        panelCenterColors.push(panelColorBlue);
+
+        // 8 & 9. South Side Centers (White) - Opposite, Rotated 90 deg from North Whites
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, southSideLat, Math.PI / 2)); // Phi = PI/2
+        panelCenterColors.push(panelColorWhite);
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, southSideLat, 3 * Math.PI / 2)); // Phi = 3PI/2
+        panelCenterColors.push(panelColorWhite);
+
+        // 10. South Pole Center (Yellow)
+        panelCenters.push(new THREE.Vector3().setFromSphericalCoords(1, southPoleLat, 0)); // Phi can be anything here
+        panelCenterColors.push(panelColorYellow);
+
+        console.log("Defined Centers:", panelCenters.length);
+        console.log("Defined Colors:", panelCenterColors.length);
+
+
+        // --- Function to Generate Texture Data with Borders ---
+        function generateVolleyballTexture(canvas) {
+            canvas.width = textureWidth;
+            canvas.height = textureHeight;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                console.error("Could not get 2D context");
+                return;
+            }
+
+            console.log("Generating 10-panel volleyball texture approximation...");
+
+            const imageData = ctx.createImageData(textureWidth, textureHeight);
+            const data = imageData.data; // Uint8ClampedArray [R, G, B, A, R, G, B, A, ...]
+            const currentPoint = new THREE.Vector3(); // To avoid creating vectors in the loop
+
+            for (let y = 0; y < textureHeight; y++) {
+                for (let x = 0; x < textureWidth; x++) {
+
+                    // 1. Map Canvas pixel (x, y) to spherical coords (theta, phi)
+                    // u goes from 0 to 1 --> phi goes from 0 to 2*PI (longitude)
+                    // v goes from 0 to 1 --> theta goes from 0 to PI (latitude, 0=NP, PI=SP)
+                    const u = x / (textureWidth - 1);
+                    const v = y / (textureHeight - 1);
+                    const theta = v * Math.PI;      // Polar angle (latitude)
+                    const phi = u * 2 * Math.PI;    // Azimuthal angle (longitude)
+
+                    // 2. Convert spherical coords to 3D point on unit sphere
+                    // Three.js uses (radius, polar angle, azimuthal angle)
+                    currentPoint.setFromSphericalCoords(1, theta, phi);
+
+                    // 3. Find the TWO nearest panel centers
+                    let minDistSq1 = Infinity;
+                    let minDistSq2 = Infinity;
+                    let nearestPanelIndex1 = -1; // Initialize with invalid index
+                    // let nearestPanelIndex2 = -1; // We only need the index of the closest
+
+                    for (let i = 0; i < panelCenters.length; i++) {
+                        // Use distanceToSquared for efficiency
+                        const distSq = currentPoint.distanceToSquared(panelCenters[i]);
+
+                        if (distSq < minDistSq1) {
+                            // Found a new closest: shift old closest to 2nd place
+                            minDistSq2 = minDistSq1;
+                            // nearestPanelIndex2 = nearestPanelIndex1; // Update 2nd index if needed
+                            minDistSq1 = distSq;
+                            nearestPanelIndex1 = i;
+                        } else if (distSq < minDistSq2) {
+                            // Found a new 2nd closest
+                            minDistSq2 = distSq;
+                            // nearestPanelIndex2 = i;
+                        }
+                    }
+
+                    // 4. Determine Pixel Color: Border or Panel Color?
+                    let finalColor;
+                    // Check if the point is near a boundary
+                    // Use ratio of squared distances to avoid sqrt()
+                    // Add small epsilon to minDistSq1 to prevent division by zero if point is exactly on a center
+                    const ratioSq = minDistSq2 / (minDistSq1 + 1e-9); // Add epsilon for stability
+
+                    // Check if the nearest panel index is valid before accessing color
+                    if (nearestPanelIndex1 !== -1) {
+                        if (ratioSq < borderDistanceRatioThreshold * borderDistanceRatioThreshold) {
+                            // If the 2nd closest center is proportionally close to the 1st, it's a border
+                            finalColor = borderColor;
+                        } else {
+                            // Otherwise, it belongs to the closest panel
+                            finalColor = panelCenterColors[nearestPanelIndex1];
+                        }
+                    } else {
+                        // Should not happen with defined centers, but fallback to black just in case
+                        console.warn(`No nearest center found for pixel (${x}, ${y})?`);
+                        finalColor = borderColor;
+                    }
+
+
+                    // 5. Set the pixel color in the ImageData array
+                    const pixelIndex = (y * textureWidth + x) * 4; // 4 components (R,G,B,A)
+                    data[pixelIndex    ] = Math.round(finalColor.r * 255); // Red
+                    data[pixelIndex + 1] = Math.round(finalColor.g * 255); // Green
+                    data[pixelIndex + 2] = Math.round(finalColor.b * 255); // Blue
+                    data[pixelIndex + 3] = 255;                       // Alpha (fully opaque)
+                }
+            }
+
+            // Put the generated pixel data onto the canvas
+            ctx.putImageData(imageData, 0, 0);
+            console.log("Texture generation complete.");
+        }
+
+
+        // --- Basic Three.js Setup ---
+        function init() {
+             scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 2.5; // Slightly closer view
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.outputColorSpace = THREE.SRGBColorSpace; // Correct color space
+            document.body.appendChild(renderer.domElement);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05; // Smooth controls
+
+            // --- Generate the Texture ---
+            const canvas = document.getElementById('textureCanvas');
+            generateVolleyballTexture(canvas);
+
+            // --- Create Texture from Canvas ---
+            const generatedTexture = new THREE.CanvasTexture(canvas);
+            generatedTexture.colorSpace = THREE.SRGBColorSpace; // Match renderer
+             generatedTexture.mapping = THREE.EquirectangularReflectionMapping; // Or UVMapping if needed
+            generatedTexture.needsUpdate = true; // Crucial!
+
+            // --- Create Ball using Generated Texture ---
+            const ballGeometry = new THREE.SphereGeometry(1, 64, 32); // Higher detail sphere
+            const ballMaterial = new THREE.MeshStandardMaterial({
+                map: generatedTexture,
+                roughness: 0.6, // Adjust for desired shininess
+                metalness: 0.1,
+                side: THREE.FrontSide // Default, but good to be explicit
+            });
+            ball = new THREE.Mesh(ballGeometry, ballMaterial);
+            scene.add(ball);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); // Slightly brighter ambient
+            scene.add(ambientLight);
+            const light1 = new THREE.DirectionalLight(0xffffff, 1.5);
+            light1.position.set(5, 10, 7);
+            scene.add(light1);
+            const light2 = new THREE.DirectionalLight(0xffffff, 0.8);
+            light2.position.set(-5, -5, -5);
+            scene.add(light2);
+
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // Update controls for damping
+            // ball.rotation.y += 0.002; // Optional slow rotation
+            // ball.rotation.x += 0.001;
+            renderer.render(scene, camera);
+        }
+
+        init();
+
+
+		
+
+
+
+
+
+
+
+
+/**
+ * Calculates the coordinates of key volleyball panel corners based on
+ * surface measurements and 2-fold rotational symmetry.
+ *
+ * @param {number} circumference - The circumference of the volleyball in cm.
+ * @returns {Array<object>} An array of objects, each containing { name: string, spherical: {r, theta, phi}, cartesian: THREE.Vector3 }.
+ */
+function calculateVolleyballCorners(circumference) {
+    if (!circumference || circumference <= 0) {
+        console.error("Invalid circumference provided.");
+        return [];
+    }
+
+    const R = circumference / (2 * Math.PI); // Calculate radius
+    console.log(`Calculated Radius (R): ${R.toFixed(2)} cm`);
+
+    // --- Calculate Angles from Surface Distances ---
+    const dist_NP_to_C1 = 12.5;
+    const dist_C1_to_C2 = 6.7;
+    const dist_C1_to_C3 = 1.4;
+
+    const theta1 = dist_NP_to_C1 / R;
+    const theta2 = (dist_NP_to_C1 + dist_C1_to_C2) / R;
+
+    console.log(`Theta1 (Corner 1 & 3): ${theta1.toFixed(3)} rad (${ (theta1 * 180 / Math.PI).toFixed(1) } deg)`);
+    console.log(`Theta2 (Corner 2):    ${theta2.toFixed(3)} rad (${ (theta2 * 180 / Math.PI).toFixed(1) } deg)`);
+
+    const r_small_at_theta1 = R * Math.sin(theta1);
+    let delta_phi3 = 0;
+    if (r_small_at_theta1 > 1e-6) {
+       delta_phi3 = dist_C1_to_C3 / r_small_at_theta1;
+    } else {
+       console.warn("Corner 1 is too close to the pole to calculate sideways movement accurately.");
+    }
+    console.log(`Delta Phi for Corner 3: ${delta_phi3.toFixed(3)} rad (${ (delta_phi3 * 180 / Math.PI).toFixed(1) } deg)`);
+
+    // --- Define Base Corners (Northern Hemisphere, Sector 0, relative to Prime Meridian) ---
+    const corners = [];
+    const baseSectorCorners = [ // Points in the initial 0 to 180 deg segment before rotation
+        { name: 'N_C1_S0', spherical: { r: R, theta: theta1, phi: 0 }, type: 'BYY_PM' }, // Corner 1 on Prime Meridian
+        { name: 'N_C2_S0', spherical: { r: R, theta: theta2, phi: 0 }, type: 'YYB_PM' }, // Corner 2 on Prime Meridian
+        { name: 'N_C3_L0', spherical: { r: R, theta: theta1, phi: delta_phi3 }, type: 'BYW_L' }, // Corner 3 to the left (positive phi)
+        // Add the mirrored Corner 3
+        { name: 'N_C3_R0', spherical: { r: R, theta: theta1, phi: (2 * Math.PI - delta_phi3) % (2 * Math.PI) }, type: 'WYB_R' }, // Corner 3 to the right (negative phi equivalent)
+    ];
+    corners.push(...baseSectorCorners); // Add these initial 4 corners
+
+    console.log(`Generated 4 base northern hemisphere corners (before rotation).`);
+
+
+    // --- Apply Symmetries ---
+
+    // 1. Rotational Symmetry (2-fold around the pole: 180 deg)
+    const rotatedCorners = [];
+    const rotationAngle = Math.PI; // 180 degrees
+
+    corners.forEach(c => { // For each of the 4 base corners
+        const rotatedPhi = (c.spherical.phi + rotationAngle) % (2 * Math.PI);
+        const rotatedName = c.name.replace('_S0', '_S1').replace('_L0', '_L1').replace('_R0', '_R1'); // Indicate rotation
+         rotatedCorners.push({
+            name: rotatedName,
+            spherical: { r: R, theta: c.spherical.theta, phi: rotatedPhi },
+            type: c.type.replace('_PM','_AM').replace('_L','_RL').replace('_R','_LR') // Adjust type labels slightly if needed
+        });
+    });
+    corners.push(...rotatedCorners); // Add the 4 rotated corners
+
+    console.log(`Generated ${corners.length} northern hemisphere corners (after 180 deg rotation).`); // Should be 8
+
+    // 2. North -> South Transformation (theta -> PI - theta, phi -> phi + 90deg, Swap Blue/Yellow)
+    const southernCorners = [];
+    const southRotation = Math.PI / 2; // 90 degrees
+
+    corners.forEach(nc => { // For each of the 8 northern corners
+        const southTheta = Math.PI - nc.spherical.theta;
+        const southPhi = (nc.spherical.phi + southRotation) % (2 * Math.PI);
+        let southType = nc.type;
+        // Swap B and Y in the type string
+        southType = southType.replace(/B/g, 'T').replace(/Y/g, 'B').replace(/T/g, 'Y'); // Temporary T
+
+        const southName = nc.name.replace('N_', 'S_');
+
+        southernCorners.push({
+            name: southName,
+            spherical: { r: R, theta: southTheta, phi: southPhi },
+            type: southType
+        });
+    });
+
+    console.log(`Generated ${southernCorners.length} southern hemisphere corners.`); // Should be 8
+    corners.push(...southernCorners);
+
+    // --- Calculate Cartesian Coordinates ---
+    corners.forEach(c => {
+        c.cartesian = new THREE.Vector3();
+        const r = c.spherical.r;
+        const theta = c.spherical.theta; // Our polar angle
+        const phi = c.spherical.phi;     // Our azimuthal angle
+        c.cartesian.setFromSphericalCoords(r, theta, phi); // Use Three.js function (radius, polar, azimuthal)
+    });
+
+    console.log(`Calculated Cartesian coordinates for ${corners.length} total corners.`); // Should be 16!
+    return corners;
+}
+
+// --- Example Usage (within your <script type="module">) ---
+
+const ballCircumference = 67; // cm
+const allCornersData = calculateVolleyballCorners(ballCircumference);
+
+console.log("Generated Corner Data (16 corners):", allCornersData);
+
+// Example: Add visual markers for corners in the scene (for debugging)
+if (typeof scene !== 'undefined') { // Check if scene exists
+    const cornerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const cornerGeometry = new THREE.SphereGeometry( 10.6 * 0.02); // Smaller spheres relative to Radius
+    allCornersData.forEach(corner => {
+        if (corner.cartesian) { // Ensure cartesian exists
+           const marker = new THREE.Mesh(cornerGeometry, cornerMaterial);
+           marker.position.copy(corner.cartesian);
+           scene.add(marker);
+        } else {
+           console.warn("Corner missing cartesian data:", corner.name);
+        }
+    });
+     console.log("Added debug markers to scene.");
+} else {
+     console.log("Scene not defined, skipping debug markers.");
+}
+
+
+
+
+
+
+
+
+    </script>
+</body>
+</html>

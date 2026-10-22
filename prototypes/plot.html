@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Beach Volleyball Service Plot</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 20px; background-color: #f0f0f0; }
+        .controls-container { display: flex; flex-direction: column; align-items: center; margin-bottom: 20px; }
+        .controls { padding: 15px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); width: 600px; }
+        .control-group { margin-bottom: 15px; }
+        .control-group h3 { margin-top: 0; margin-bottom: 8px; font-size: 1.1em; color: #333; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        .control-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .control-item label { margin-right: 10px; flex-basis: 220px; }
+        .control-item input[type="range"] { flex-grow: 1; margin-right:10px; }
+        .control-item span, .control-item select { width: auto; min-width:50px; text-align: right; }
+        .control-item select {padding: 5px; border-radius: 4px; border: 1px solid #ccc;}
+
+        canvas { border: 1px solid #ccc; background-color: #fff; }
+        .plot-container { position: relative; margin-top: 10px; }
+        .axis-label-y { position: absolute; left: -70px; top: 50%; transform: translateY(-50%) rotate(-90deg); font-size: 14px; white-space: nowrap; }
+        .axis-label-x { text-align: center; margin-top: 10px; font-size: 14px; }
+        h1, h2 { text-align: center; }
+        #plotTitle { margin-bottom: 5px; }
+        .legend { margin-top: 15px; padding: 10px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); width: 600px;}
+        .legend div { margin-bottom: 5px; display: flex; align-items: center;}
+        .legend span { display: inline-block; width: 20px; height: 10px; margin-right: 8px; border: 1px solid #555; }
+        #loadingIndicator { display: none; margin-top: 10px; font-style: italic; }
+    </style>
+</head>
+<body>
+    <h1>Advanced Beach Volleyball Service Plot</h1>
+
+    <div class="controls-container">
+        <div class="controls">
+            <h2>Parameters</h2>
+            <div class="control-group">
+                <h3>Serve Setup</h3>
+                <div class="control-item">
+                    <label for="hServe">Service Contact Height (m):</label>
+                    <input type="range" id="hServe" min="1.5" max="3.5" step="0.05" value="2.5">
+                    <span id="hServeValue">2.50</span> m
+                </div>
+                <div class="control-item">
+                    <label for="horizontalAngleType">Horizontal Angle Type:</label>
+                    <select id="horizontalAngleType">
+                        <option value="straight">Straight</option>
+                        <option value="center_to_corner">Center to Corner</option>
+                        <option value="diagonal">Diagonal (Corner to Corner)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Environment</h3>
+                 <div class="control-item">
+                    <label for="netHeight">Net Height (m):</label>
+                    <input type="range" id="netHeight" min="2.0" max="2.6" step="0.01" value="2.43">
+                    <span id="netHeightValue">2.43</span> m
+                </div>
+                <div class="control-item">
+                    <label for="dragCoefficient">Air Drag Coefficient (Cd):</label>
+                    <input type="range" id="dragCoefficient" min="0" max="1.0" step="0.01" value="0.0">
+                    <span id="dragCoefficientValue">0.00</span>
+                </div>
+            </div>
+            <button id="drawButton" style="width: 100%; padding: 10px; margin-top:10px;">Redraw Plot</button>
+            <div id="loadingIndicator">Calculating... please wait.</div>
+        </div>
+    </div>
+
+
+    <h2 id="plotTitle">Serve Success Region</h2>
+    <div class="plot-container">
+        <div class="axis-label-y">Vertical Launch Angle (degrees)</div>
+        <canvas id="servicePlot" width="600" height="450"></canvas>
+        <div class="axis-label-x">Initial Speed (m/s)</div>
+    </div>
+
+    <div class="legend">
+        <div><span style="background-color: rgba(0, 128, 0, 0.7);"></span> Successful Serve ("In" Region)</div>
+        <div><span style="background-color: rgba(173, 216, 230, 0.5);"></span> Out of Bounds / Net Hit</div>
+        <div><span style="background-color: red;"></span> Net Clearance Limit (approx.)</div>
+        <div><span style="background-color: darkblue;"></span> Lands on End Line Limit (approx.)</div>
+    </div>
+
+    <script>
+        // --- Constants & Configuration ---
+        const G_CONST = 9.81; // m/s^2
+        const X_NET_CONST = 8.0; // m, distance to net
+        const X_COURT_END_CONST = 16.0; // m, end of opponent's court
+        const W_COURT_CONST = 8.0; // m, width of the court
+        
+        // Air Drag related constants
+        const RHO_AIR = 1.225; // kg/m^3, air density
+        const MASS_BALL = 0.270; // kg, volleyball mass (approx 260-280g)
+        const RADIUS_BALL = 0.105; // m, volleyball radius (approx 66-68cm circumference / 2pi)
+        const AREA_BALL = Math.PI * RADIUS_BALL * RADIUS_BALL; // m^2, cross-sectional area
+
+        const DT = 0.005; // s, time step for numerical integration
+        const MAX_SIM_TIME = 5; // s, max simulation time for one serve trajectory
+
+        // --- Canvas and Context ---
+        const canvas = document.getElementById('servicePlot');
+        const ctx = canvas.getContext('2d');
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+
+        // --- Input Elements ---
+        const hServeInput = document.getElementById('hServe');
+        const hServeValueSpan = document.getElementById('hServeValue');
+        const horizontalAngleTypeSelect = document.getElementById('horizontalAngleType');
+        const netHeightInput = document.getElementById('netHeight');
+        const netHeightValueSpan = document.getElementById('netHeightValue');
+        const dragCoefficientInput = document.getElementById('dragCoefficient');
+        const dragCoefficientValueSpan = document.getElementById('dragCoefficientValue');
+        const drawButton = document.getElementById('drawButton');
+        const plotTitle = document.getElementById('plotTitle');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+
+        // --- Plotting Ranges ---
+        const V0_MIN = 5, V0_MAX = 30; // m/s
+        const THETA_V_DEG_MIN = -20, THETA_V_DEG_MAX = 90;
+        const THETA_V_CALC_MAX_DEG = 89.95;
+
+        // Reduced steps for faster redraw with drag, can be increased for final version
+        const V0_STEPS = 100; // Resolution for speed
+        const THETA_V_STEPS = 100; // Resolution for vertical angle
+
+        function degToRad(degrees) { return degrees * (Math.PI / 180); }
+        function radToDeg(radians) { return radians * (180 / Math.PI); }
+
+        // --- Physics Simulation (with optional Air Drag) ---
+        function simulateServe(v0, theta_v_rad, theta_h_rad, h_serve, current_Cd) {
+            let { v0x, v0y, v0z } = getInitialVelocities(v0, theta_v_rad, theta_h_rad);
+            
+            let x = 0, y = h_serve, z = 0; // Initial position (relative to server's contact point)
+            let server_z_pos = 0; // Will be adjusted for diagonal serves later
+
+            // Adjust actual server_z_pos based on horizontalAngleType for landing checks
+            const angleType = horizontalAngleTypeSelect.value;
+            if (angleType === "diagonal") {
+                server_z_pos = -W_COURT_CONST / 2; // Server on one side for diagonal
+            }
+            
+            z = server_z_pos; // Initial absolute z position
+
+            let t = 0;
+            let ball_trajectory = []; // To store points for potential curve fitting or debugging
+
+            let y_at_net = -1, z_at_net = -1, t_at_net = -1;
+            let crossed_net_plane = false;
+
+            while (t < MAX_SIM_TIME && y > 0) {
+                ball_trajectory.push({x, y, z, t});
+
+                let ax = 0, ay = -G_CONST, az = 0;
+
+                if (current_Cd > 0) {
+                    const v_mag_sq = v0x * v0x + v0y * v0y + v0z * v0z;
+                    if (v_mag_sq > 1e-6) { // Avoid division by zero if ball is stationary
+                        const v_mag = Math.sqrt(v_mag_sq);
+                        const Fd_mag = 0.5 * RHO_AIR * AREA_BALL * current_Cd * v_mag_sq;
+                        
+                        const drag_factor = Fd_mag / (MASS_BALL * v_mag);
+                        ax -= drag_factor * v0x;
+                        ay -= drag_factor * v0y;
+                        az -= drag_factor * v0z;
+                    }
+                }
+
+                v0x += ax * DT;
+                v0y += ay * DT;
+                v0z += az * DT;
+
+                const prev_x = x;
+                x += v0x * DT;
+                y += v0y * DT;
+                z += v0z * DT; // This is z relative to server's serving line. Add server_z_pos for absolute.
+
+                // Check for net crossing (precisely)
+                if (!crossed_net_plane && x >= X_NET_CONST && prev_x < X_NET_CONST) {
+                    crossed_net_plane = true;
+                    // Interpolate to find more precise y, z, t at net
+                    const fraction = (X_NET_CONST - prev_x) / (x - prev_x);
+                    t_at_net = t + fraction * DT;
+                    y_at_net = ball_trajectory[ball_trajectory.length-1].y + fraction * (y - ball_trajectory[ball_trajectory.length-1].y);
+                    z_at_net = ball_trajectory[ball_trajectory.length-1].z + fraction * (z - ball_trajectory[ball_trajectory.length-1].z);
+                 }
+                t += DT;
+            }
+
+            // Interpolate for landing position if y went below 0
+            let x_land = x, z_land = z, t_land = t;
+            if (y <= 0 && ball_trajectory.length > 1) {
+                const last_pt = ball_trajectory[ball_trajectory.length - 1];
+                const second_last_pt = ball_trajectory[ball_trajectory.length - 2];
+                if (last_pt.y !== second_last_pt.y) { // Avoid division by zero if y hasn't changed (e.g. hit ground flat)
+                    const fraction_land = (0 - second_last_pt.y) / (last_pt.y - second_last_pt.y);
+                    x_land = second_last_pt.x + fraction_land * (last_pt.x - second_last_pt.x);
+                    z_land = second_last_pt.z + fraction_land * (last_pt.z - second_last_pt.z);
+                    t_land = second_last_pt.t + fraction_land * (last_pt.t - second_last_pt.t);
+                }
+            }
+             // If net wasn't crossed (e.g. serve went straight up and down before net)
+            if (!crossed_net_plane) {
+                y_at_net = -1; // Sentinel value indicates net was not reached
+                z_at_net = 0;
+                t_at_net = -1;
+            }
+
+
+            return {
+                y_at_net: y_at_net,
+                z_at_net: z_at_net, // This is absolute z if server_z_pos was used for initial z
+                t_at_net: t_at_net,
+                x_land: x_land,
+                z_land: z_land, // This is absolute z
+                t_land: t_land,
+                hit_ground: y <=0
+            };
+        }
+
+        function getInitialVelocities(v0, theta_v_rad, theta_h_rad) {
+            const v0_cos_theta_v = v0 * Math.cos(theta_v_rad);
+            return {
+                v0x: v0_cos_theta_v * Math.cos(theta_h_rad),
+                v0y: v0 * Math.sin(theta_v_rad),
+                v0z: v0_cos_theta_v * Math.sin(theta_h_rad) // This is relative to server's line
+            };
+        }
+        
+        function getThetaHFixedRad(angleType, h_serve) {
+            let server_x_contact = 0; // Assume server contacts ball over baseline for simplicity
+            let server_z_contact;
+
+            if (angleType === "straight") {
+                server_z_contact = 0; // Serve from center
+                return {theta_h: 0, server_z_pos_for_sim: 0};
+            } else if (angleType === "center_to_corner") {
+                server_z_contact = 0; // Serve from center
+                // Target opponent's right corner (positive z) if server facing net
+                const target_z = W_COURT_CONST / 2;
+                const target_x = X_COURT_END_CONST;
+                return {theta_h: Math.atan2(target_z - server_z_contact, target_x - server_x_contact), server_z_pos_for_sim: 0};
+            } else if (angleType === "diagonal") {
+                // Server on their left side (negative z), serving to opponent's right side (positive z)
+                server_z_contact = -W_COURT_CONST / 2;
+                const target_z = W_COURT_CONST / 2;
+                const target_x = X_COURT_END_CONST;
+                 return {theta_h: Math.atan2(target_z - server_z_contact, target_x - server_x_contact), server_z_pos_for_sim: server_z_contact};
+            }
+            return {theta_h: 0, server_z_pos_for_sim: 0}; // Default to straight
+        }
+
+
+        function isServeIn(v0, theta_v_rad, fixed_horizontal_angle_rad, h_serve, h_net_top, current_Cd, server_z_for_sim) {
+            // The simulateServe function's initial z should be set according to server_z_for_sim for diagonal
+            // but fixed_horizontal_angle_rad is relative to server's facing direction.
+            // The z_at_net and z_land from simulateServe will be absolute court coordinates.
+
+            const sim_result = simulateServe(v0, theta_v_rad, fixed_horizontal_angle_rad, h_serve, current_Cd);
+
+            if (!sim_result.hit_ground || sim_result.y_at_net === -1) return false; // Didn't hit ground or reach net
+
+            // Check net clearance (absolute z position)
+            if (!(sim_result.y_at_net > h_net_top && Math.abs(sim_result.z_at_net) <= W_COURT_CONST / 2)) {
+                return false; // Hits net or out wide at net
+            }
+
+            // Check landing position (absolute z position)
+            if (!(sim_result.x_land > X_NET_CONST && sim_result.x_land <= X_COURT_END_CONST && Math.abs(sim_result.z_land) <= W_COURT_CONST / 2)) {
+                 return false; // Landed out of bounds (short, long, or wide)
+            }
+            return true;
+        }
+
+
+        // --- Plotting Functions ---
+        function addPointToCurve(curveArray, v0, theta_v_deg) {
+            if (v0 >= V0_MIN && v0 <= V0_MAX && theta_v_deg >= THETA_V_DEG_MIN && theta_v_deg <= THETA_V_DEG_MAX) {
+                const canvasX = (v0 - V0_MIN) / (V0_MAX - V0_MIN) * (canvasWidth -1) ;
+                const canvasY = (THETA_V_DEG_MAX - theta_v_deg) / (THETA_V_DEG_MAX - THETA_V_DEG_MIN) * (canvasHeight -1);
+                curveArray.push({ x: canvasX, y: canvasY });
+            }
+        }
+
+        function drawCurve(curvePoints, color, lineWidth = 2) { // Increased lineWidth
+            if (curvePoints.length < 2) return;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lineWidth;
+            ctx.beginPath();
+            let lastY = curvePoints[0].y;
+            ctx.moveTo(curvePoints[0].x, curvePoints[0].y);
+            for (let k = 1; k < curvePoints.length; k++) {
+                 // Only draw line if points are reasonably close to avoid jumping across undefined regions
+                if (Math.abs(curvePoints[k].y - lastY) < canvasHeight / THETA_V_STEPS * 10 ) { // Max ~10 vertical steps jump
+                     ctx.lineTo(curvePoints[k].x, curvePoints[k].y);
+                } else {
+                     ctx.moveTo(curvePoints[k].x, curvePoints[k].y); // Start a new line segment
+                }
+                lastY = curvePoints[k].y;
+            }
+            ctx.stroke();
+        }
+        
+        async function drawPlot() {
+            loadingIndicator.style.display = 'block';
+            drawButton.disabled = true;
+
+            // Allow UI to update before heavy calculation
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+
+            const H_SERVE = parseFloat(hServeInput.value);
+            const H_NET_TOP = parseFloat(netHeightInput.value);
+            const CURRENT_CD = parseFloat(dragCoefficientInput.value);
+            const angleType = horizontalAngleTypeSelect.value;
+
+            const {theta_h: THETA_H_FIXED_RAD, server_z_pos_for_sim} = getThetaHFixedRad(angleType, H_SERVE);
+
+
+            hServeValueSpan.textContent = H_SERVE.toFixed(2);
+            netHeightValueSpan.textContent = H_NET_TOP.toFixed(2);
+            dragCoefficientValueSpan.textContent = CURRENT_CD.toFixed(2);
+            let angleTypeName = angleType.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase());
+            plotTitle.textContent = `Serve Region (H:${H_SERVE.toFixed(1)}m, ${angleTypeName}, Cd:${CURRENT_CD.toFixed(2)}, Net:${H_NET_TOP.toFixed(2)}m)`;
+
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+            const cellWidth = canvasWidth / V0_STEPS;
+            const cellHeight = canvasHeight / THETA_V_STEPS;
+
+            let netClearanceCurve = [], landAtEndCurve = [];
+
+            for (let i = 0; i < THETA_V_STEPS; i++) {
+                const theta_v_deg = THETA_V_DEG_MAX - i * (THETA_V_DEG_MAX - THETA_V_DEG_MIN) / (THETA_V_STEPS -1);
+                const theta_v_rad = degToRad(Math.min(theta_v_deg, THETA_V_CALC_MAX_DEG));
+
+                let min_v0_for_net_clearance = V0_MAX + 1;
+                let max_v0_for_end_line_in = V0_MIN -1;
+
+                for (let j = 0; j < V0_STEPS; j++) {
+                    const v0 = V0_MIN + j * (V0_MAX - V0_MIN) / (V0_STEPS -1);
+                    const serveIsIn = isServeIn(v0, theta_v_rad, THETA_H_FIXED_RAD, H_SERVE, H_NET_TOP, CURRENT_CD, server_z_pos_for_sim);
+                    
+                    ctx.fillStyle = serveIsIn ? 'rgba(0, 128, 0, 0.7)' : 'rgba(173, 216, 230, 0.5)';
+                    ctx.fillRect(j * cellWidth, i * cellHeight, cellWidth + 0.5, cellHeight + 0.5);
+
+                    // Boundary curve logic (approximate for air drag)
+                    if (CURRENT_CD > 0 || true) { // Always use sim results for boundaries for consistency
+                        const sim_result = simulateServe(v0, theta_v_rad, THETA_H_FIXED_RAD, H_SERVE, CURRENT_CD);
+                        if (sim_result.y_at_net > H_NET_TOP && Math.abs(sim_result.z_at_net) <= W_COURT_CONST / 2) { // Cleared net correctly
+                             min_v0_for_net_clearance = Math.min(min_v0_for_net_clearance, v0);
+                        }
+                        if (sim_result.x_land <= X_COURT_END_CONST && sim_result.x_land > X_NET_CONST && 
+                            Math.abs(sim_result.z_land) <= W_COURT_CONST / 2 && sim_result.y_at_net > H_NET_TOP) { // Landed in, correctly
+                            max_v0_for_end_line_in = Math.max(max_v0_for_end_line_in, v0);
+                        }
+                    }
+                }
+                if (min_v0_for_net_clearance <= V0_MAX) addPointToCurve(netClearanceCurve, min_v0_for_net_clearance, theta_v_deg);
+                if (max_v0_for_end_line_in >= V0_MIN) addPointToCurve(landAtEndCurve, max_v0_for_end_line_in, theta_v_deg);
+
+            }
+            // No analytical curves if drag is on, use the approximated ones.
+            // If CD == 0, one could implement the analytical ones again, but for consistency, use sim based.
+            drawCurve(netClearanceCurve, 'red');
+            drawCurve(landAtEndCurve, 'darkblue');
+
+            // Axes and Ticks
+            ctx.strokeStyle = '#333'; ctx.lineWidth = 1; ctx.font = '10px Arial'; ctx.fillStyle = '#333'; ctx.textAlign = 'start';
+            const numYTicks = Math.round((THETA_V_DEG_MAX - THETA_V_DEG_MIN) / 15);
+            for (let i = 0; i <= numYTicks; i++) {
+                const angle = THETA_V_DEG_MAX - i * (THETA_V_DEG_MAX - THETA_V_DEG_MIN) / numYTicks;
+                const yPos = Math.min(canvasHeight, Math.max(0, i * (canvasHeight / numYTicks)));
+                ctx.beginPath(); ctx.moveTo(0, yPos); ctx.lineTo(5, yPos); ctx.stroke();
+                ctx.fillText(angle.toFixed(0), 8, yPos + 4);
+            }
+            const numXTicks = 5;
+            for (let i = 0; i <= numXTicks; i++) {
+                const speed = V0_MIN + i * (V0_MAX - V0_MIN) / numXTicks;
+                const xPos = Math.min(canvasWidth, Math.max(0, i * (canvasWidth / numXTicks)));
+                ctx.beginPath(); ctx.moveTo(xPos, canvasHeight); ctx.lineTo(xPos, canvasHeight - 5); ctx.stroke();
+                if (i === 0) ctx.textAlign = 'left'; else if (i === numXTicks) ctx.textAlign = 'right'; else ctx.textAlign = 'center';
+                ctx.fillText(speed.toFixed(0), xPos, canvasHeight - 8);
+            }
+            ctx.textAlign = 'start';
+
+            loadingIndicator.style.display = 'none';
+            drawButton.disabled = false;
+        }
+
+        // Event Listeners & Initial Draw
+        [hServeInput, netHeightInput, dragCoefficientInput, horizontalAngleTypeSelect].forEach(input => {
+            input.addEventListener('input', () => {
+                 if(input.id === "hServe") hServeValueSpan.textContent = parseFloat(input.value).toFixed(2);
+                 if(input.id === "netHeight") netHeightValueSpan.textContent = parseFloat(input.value).toFixed(2);
+                 if(input.id === "dragCoefficient") dragCoefficientValueSpan.textContent = parseFloat(input.value).toFixed(2);
+            });
+        });
+        drawButton.addEventListener('click', drawPlot);
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set initial span values
+            hServeValueSpan.textContent = parseFloat(hServeInput.value).toFixed(2);
+            netHeightValueSpan.textContent = parseFloat(netHeightInput.value).toFixed(2);
+            dragCoefficientValueSpan.textContent = parseFloat(dragCoefficientInput.value).toFixed(2);
+            drawPlot();
+        });
+    </script>
+</body>
+</html>

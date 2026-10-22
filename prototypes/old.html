@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beach Volleyball Serve Simulation with Heatmap</title>
+    <style>
+        /* --- Existing Styles --- */
+        body { margin: 0; font-family: sans-serif; display: flex; height: 100vh; overflow: hidden; background-color: #f0f0f0; }
+        #simulation-container { flex-grow: 1; position: relative; background-color: #87ceeb; /* Sky blue */ }
+        #canvas { display: block; }
+        #controls-container {
+            width: 300px; /* Adjusted width slightly */
+            padding: 15px;
+            background-color: #ffffff;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+            overflow-y: auto;
+            height: 100vh;
+            box-sizing: border-box; /* Include padding in height */
+        }
+        h3 { margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;}
+        .control-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 3px; font-weight: bold; font-size: 0.9em;}
+        input[type=range], input[type=number], select {
+            width: calc(100% - 10px); /* Adjust for padding/border */
+            margin-bottom: 5px;
+        }
+        .value-display { font-size: 0.85em; color: #555; margin-left: 5px; }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover { background-color: #45a049; }
+        #optimize-button { background-color: #007bff; }
+        #optimize-button:hover { background-color: #0056b3; }
+        #results {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #e9e9e9;
+            border-radius: 3px;
+            font-weight: bold;
+            font-size: 0.9em; /* Slightly smaller */
+            line-height: 1.3; /* Better spacing for multi-line */
+        }
+        #loading-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 5px;
+            font-size: 1.2em;
+            display: none; /* Hidden by default */
+            z-index: 10;
+        }
+         #simulation-container #loading-indicator { /* Specificity for positioning */
+             position: absolute;
+         }
+         /* --- New Heatmap Legend Styles --- */
+         #heatmap-legend {
+             position: absolute;
+             bottom: 10px;
+             right: 10px;
+             background-color: rgba(255, 255, 255, 0.8);
+             padding: 5px 10px;
+             border-radius: 3px;
+             font-size: 0.8em;
+             z-index: 5; /* Above canvas but below loader */
+         }
+         #heatmap-legend-gradient {
+             width: 100px;
+             height: 10px;
+             background: linear-gradient(to right, blue, cyan, lime, yellow, red);
+             display: block;
+             margin-bottom: 2px;
+         }
+         #heatmap-legend-labels {
+             display: flex;
+             justify-content: space-between;
+             font-size: 0.9em;
+         }
+    </style>
+</head>
+<body>
+
+    <div id="controls-container">
+        <h3>Simulation Controls</h3>
+        <!-- Existing controls -->
+        <div class="control-group">
+            <label for="startPosX">Start Position X (m): <span class="value-display" id="startPosXVal">-9.0</span></label>
+            <input type="range" id="startPosX" name="startPosX" min="-11" max="-8.1" step="0.1" value="-9">
+            <label for="startPosY">Start Position Y (m): <span class="value-display" id="startPosYVal">2.5</span></label>
+            <input type="range" id="startPosY" name="startPosY" min="1.0" max="3.5" step="0.1" value="-2.5">
+            <label for="startPosZ">Start Position Z (m): <span class="value-display" id="startPosZVal">0.0</span></label>
+            <input type="range" id="startPosZ" name="startPosZ" min="-3.9" max="3.9" step="0.1" value="0">
+        </div>
+        <div class="control-group">
+            <label for="vertAngle">Vertical Angle (°): <span class="value-display" id="vertAngleVal">15</span></label>
+            <input type="range" id="vertAngle" name="vertAngle" min="0" max="90" step="1" value="15">
+            <label for="horizAngle">Horizontal Angle (°): <span class="value-display" id="horizAngleVal">0</span></label>
+            <input type="range" id="horizAngle" name="horizAngle" min="-45" max="45" step="1" value="0">
+        </div>
+        <div class="control-group">
+            <label for="impulse">Initial Speed (m/s): <span class="value-display" id="impulseVal">18</span></label>
+            <input type="range" id="impulse" name="impulse" min="5" max="30" step="0.5" value="18">
+        </div>
+        <div class="control-group">
+            <label for="windType">Wind Type:</label>
+            <select id="windType" name="windType">
+                <option value="none">None</option>
+                <option value="constant">Constant</option>
+                <option value="changing">Changing</option>
+            </select>
+            <label for="windStrength">Wind Strength (m/s² effect): <span class="value-display" id="windStrengthVal">0.0</span></label>
+            <input type="range" id="windStrength" name="windStrength" min="0" max="5" step="0.1" value="0">
+            <label for="windDirection">Wind Direction (°): <span class="value-display" id="windDirectionVal">0</span></label>
+            <input type="range" id="windDirection" name="windDirection" min="0" max="359" step="1" value="0">
+            <small>(0° = +X, 90° = +Z, 180° = -X, 270° = -Z)</small>
+        </div>
+         <div class="control-group">
+             <label for="cameraView">Camera View:</label>
+            <select id="cameraView" name="cameraView">
+                <option value="orbit">Orbit Control</option>
+                <option value="side">Side View</option>
+                <option value="top">Top View</option>
+                <option value="server">Behind Server</option>
+            </select>
+        </div>
+         <div class="control-group">
+             <label for="showHeatmap">Show Difficulty Heatmap:</label>
+             <input type="checkbox" id="showHeatmap" name="showHeatmap" checked>
+         </div>
+
+        <button id="serve-button">Serve!</button>
+        <button id="optimize-button">Optimize Angles</button>
+
+        <div id="results">Result: Idle</div>
+    </div>
+
+    <div id="simulation-container">
+        <canvas id="canvas"></canvas>
+        <div id="loading-indicator">Optimizing...</div>
+        <!-- Heatmap Legend -->
+        <div id="heatmap-legend">
+            <div>Difficulty</div>
+            <span id="heatmap-legend-gradient"></span>
+            <div id="heatmap-legend-labels">
+                <span>Easy</span>
+                <span>Hard</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- THREE.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+
+    <script>
+        // --- Constants ---
+        const COURT_LENGTH     = 16;     // meters
+        const COURT_WIDTH      = 8;      // meters
+        const HALF_COURT_LENGTH = COURT_LENGTH / 2;
+        const HALF_COURT_WIDTH = COURT_WIDTH / 2;
+        const NET_HEIGHT       = 2.43;   // meters (Men's)
+        const NET_POLE_RADIUS  = 0.05;
+        const NET_THICKNESS    = 0.05;
+        const BALL_RADIUS      = 0.11;   // Approx radius
+        const GRAVITY          = 9.81;   // m/s^2
+        const TIME_STEP        = 1 / 60; // Simulate 60 physics steps per second
+        const SIM_SPEED_FACTOR = 1.0;    // Adjust simulation speed (1.0 = real time)
+        const AIR_DENSITY      = 1.225; // kg/m^3
+        const BALL_MASS        = 0.27;  // kg (average volleyball mass: 260-280g)
+        const DRAG_COEFFICIENT = 0.5;   // Adjusted slightly - can be tuned
+        const BALL_AREA        = Math.PI * BALL_RADIUS * BALL_RADIUS; // Cross-sectional area
+        const DRAG_FACTOR      = 0.5 * AIR_DENSITY * DRAG_COEFFICIENT * BALL_AREA / BALL_MASS;
+
+        // --- Heatmap Constants ---
+        const HEATMAP_RESOLUTION_X = 64; // Number of cells along court length (opponent side)
+        const HEATMAP_RESOLUTION_Z = 32; // Number of cells along court width
+        const PLAYER_POSITIONS = [ // Approx. typical receiving positions (X, Z) on opponent court
+            new THREE.Vector2( HALF_COURT_LENGTH * 0.7, -HALF_COURT_WIDTH * 0.4 ), // Closer to net, slightly left
+            new THREE.Vector2( HALF_COURT_LENGTH * 0.7, HALF_COURT_WIDTH * 0.4 ) // Deeper, slightly right
+        ];
+        const PLAYER_REACH_RADIUS = 2.5; // meters - effective area player can cover easily
+        const HEATMAP_WEIGHT_TIME = 0.3; // Importance of flight time (lower = harder)
+        const HEATMAP_WEIGHT_SPEED = 0.3; // Importance of landing speed (higher = harder)
+        const HEATMAP_WEIGHT_POS = 0.4; // Importance of position (far from players = harder)
+        // Normalization estimates (adjust based on typical simulation results)
+        const MIN_INV_FLIGHT_TIME = 1 / 2.5; // 1 / MaxTime (e.g., 2.5s)
+        const MAX_INV_FLIGHT_TIME = 1 / 0.5; // 1 / MinTime (e.g., 0.5s)
+        const MIN_LANDING_SPEED = 5;      // m/s
+        const MAX_LANDING_SPEED = 25;     // m/s
+        const MIN_PLAYER_DIST = 0;
+        const MAX_PLAYER_DIST = Math.sqrt(HALF_COURT_LENGTH**2 + HALF_COURT_WIDTH**2); // Corner dist
+
+
+        // --- Global Variables ---
+        let scene, camera, renderer, controls;
+        let ball, net, courtLines, trajectoryLine;
+        let simulationRunning = false;
+        let ballState = {
+            position: new THREE.Vector3(),
+            velocity: new THREE.Vector3(),
+            time: 0,
+            timeSinceLastPhysicsUpdate: 0
+        };
+        let windParams = { type: 'none', strength: 0, directionRad: 0, vector: new THREE.Vector3() };
+        let currentServeParams = {};
+        let clock = new THREE.Clock();
+        let trajectoryPoints = [];
+
+        // Heatmap variables
+        let heatmapMesh, heatmapTexture, heatmapCanvas, heatmapContext, heatmapData;
+        let showHeatmap = true; // Controlled by checkbox
+
+        // --- DOM Elements ---
+        const simContainer = document.getElementById('simulation-container');
+        const controlsContainer = document.getElementById('controls-container');
+        const canvas = document.getElementById('canvas');
+        const resultsDiv = document.getElementById('results');
+        const serveButton = document.getElementById('serve-button');
+        const optimizeButton = document.getElementById('optimize-button');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const heatmapLegend = document.getElementById('heatmap-legend');
+        const showHeatmapCheckbox = document.getElementById('showHeatmap');
+
+        const inputs = { // ... (keep existing input refs)
+            startPosX: document.getElementById('startPosX'),
+            startPosY: document.getElementById('startPosY'),
+            startPosZ: document.getElementById('startPosZ'),
+            vertAngle: document.getElementById('vertAngle'),
+            horizAngle: document.getElementById('horizAngle'),
+            impulse: document.getElementById('impulse'),
+            windType: document.getElementById('windType'),
+            windStrength: document.getElementById('windStrength'),
+            windDirection: document.getElementById('windDirection'),
+            cameraView: document.getElementById('cameraView'),
+            showHeatmap: document.getElementById('showHeatmap') // Add checkbox
+        };
+        const valueDisplays = { // ... (keep existing value display refs)
+             startPosX: document.getElementById('startPosXVal'),
+             startPosY: document.getElementById('startPosYVal'),
+             startPosZ: document.getElementById('startPosZVal'),
+             vertAngle: document.getElementById('vertAngleVal'),
+             horizAngle: document.getElementById('horizAngleVal'),
+             impulse: document.getElementById('impulseVal'),
+             windStrength: document.getElementById('windStrengthVal'),
+             windDirection: document.getElementById('windDirectionVal')
+        };
+
+        // --- Initialization ---
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb);
+
+            const aspect = simContainer.clientWidth / simContainer.clientHeight;
+            camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(simContainer.clientWidth, simContainer.clientHeight);
+            renderer.shadowMap.enabled = true;
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.maxPolarAngle = Math.PI / 2;
+            controls.target.set(0, 1, 0);
+            controls.enabled = inputs.cameraView.value === 'orbit';
+
+            resetBallPosition();
+            updateCameraView();
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 20, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -COURT_LENGTH;
+            directionalLight.shadow.camera.right = COURT_LENGTH;
+            directionalLight.shadow.camera.top = COURT_WIDTH * 2;
+            directionalLight.shadow.camera.bottom = -COURT_WIDTH * 2;
+            scene.add(directionalLight);
+
+            createCourt();
+            createNet();
+            createBall();
+            initHeatmap(); // << Initialize Heatmap
+
+            setupControlsListeners();
+            updateControlsDisplay();
+
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+        }
+
+        // --- Scene Creation ---
+        function createCourt() {
+            // Sand Ground
+            const groundGeometry = new THREE.PlaneGeometry(COURT_LENGTH * 2.5, COURT_WIDTH * 2.5);
+            const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xf0e68c, side: THREE.DoubleSide });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Court Lines (Black)
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 });
+            const points = [];
+            // Outer boundary
+            points.push(new THREE.Vector3(-HALF_COURT_LENGTH, 0.01, -HALF_COURT_WIDTH));
+            points.push(new THREE.Vector3( HALF_COURT_LENGTH, 0.01, -HALF_COURT_WIDTH));
+            points.push(new THREE.Vector3( HALF_COURT_LENGTH, 0.01,  HALF_COURT_WIDTH));
+            points.push(new THREE.Vector3(-HALF_COURT_LENGTH, 0.01,  HALF_COURT_WIDTH));
+            points.push(new THREE.Vector3(-HALF_COURT_LENGTH, 0.01, -HALF_COURT_WIDTH));
+            // Center line (under net) - Optional
+            points.push(new THREE.Vector3(0, 0.01, -HALF_COURT_WIDTH));
+            points.push(new THREE.Vector3(0, 0.01,  HALF_COURT_WIDTH));
+
+            const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            courtLines = new THREE.LineSegments(lineGeometry, lineMaterial); // Use LineSegments if drawing separate lines
+            scene.add(courtLines);
+        }
+
+        function createNet() {
+            const netWidth = COURT_WIDTH + NET_POLE_RADIUS * 4;
+            const netGeometry = new THREE.PlaneGeometry(NET_THICKNESS, NET_HEIGHT); // Swapped width/height due to rotation
+            const netMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.5
+            });
+            net = new THREE.Mesh(netGeometry, netMaterial);
+            net.position.set(0, NET_HEIGHT / 2, 0);
+             net.rotation.y = Math.PI / 2; // Rotate to span the Z axis
+             net.geometry.computeBoundingBox(); // Needed for accurate collision later? Maybe not critical here.
+            scene.add(net);
+
+            const poleGeometry = new THREE.CylinderGeometry(NET_POLE_RADIUS, NET_POLE_RADIUS, NET_HEIGHT + 0.1, 16);
+            const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            const pole1 = new THREE.Mesh(poleGeometry, poleMaterial);
+            pole1.position.set(0, (NET_HEIGHT + 0.1) / 2, -(HALF_COURT_WIDTH + NET_POLE_RADIUS * 1.5));
+            pole1.castShadow = true; scene.add(pole1);
+            const pole2 = new THREE.Mesh(poleGeometry, poleMaterial);
+            pole2.position.set(0, (NET_HEIGHT + 0.1) / 2, (HALF_COURT_WIDTH + NET_POLE_RADIUS * 1.5));
+            pole2.castShadow = true; scene.add(pole2);
+        }
+
+        function createBall() {
+            const ballGeometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
+            const ballMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+            ball = new THREE.Mesh(ballGeometry, ballMaterial);
+            ball.castShadow = true;
+            resetBallPosition();
+            scene.add(ball);
+        }
+
+        function createTrajectoryLine() {
+            if (trajectoryLine) {
+                scene.remove(trajectoryLine);
+                trajectoryLine.geometry.dispose();
+                trajectoryLine.material.dispose();
+            }
+            if (trajectoryPoints.length < 2) return;
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+            const lineGeometry = new THREE.BufferGeometry().setFromPoints(trajectoryPoints);
+            trajectoryLine = new THREE.Line(lineGeometry, lineMaterial);
+            scene.add(trajectoryLine);
+        }
+
+        // --- Heatmap Functions ---
+        function initHeatmap() {
+            heatmapData = [];
+            for (let i = 0; i < HEATMAP_RESOLUTION_X; i++) {
+                heatmapData[i] = new Array(HEATMAP_RESOLUTION_Z).fill(0);
+            }
+
+            heatmapCanvas = document.createElement('canvas');
+            heatmapCanvas.width = HEATMAP_RESOLUTION_X;
+            heatmapCanvas.height = HEATMAP_RESOLUTION_Z;
+            heatmapContext = heatmapCanvas.getContext('2d');
+
+            heatmapTexture = new THREE.CanvasTexture(heatmapCanvas);
+            heatmapTexture.needsUpdate = true; // Ensure it updates initially
+
+            const heatmapGeometry = new THREE.PlaneGeometry(HALF_COURT_LENGTH, COURT_WIDTH);
+            const heatmapMaterial = new THREE.MeshStandardMaterial({
+                map: heatmapTexture,
+                transparent: true,
+                opacity: 0.7, // Make it semi-transparent
+                side: THREE.DoubleSide // Render both sides (though only top is seen)
+            });
+
+            heatmapMesh = new THREE.Mesh(heatmapGeometry, heatmapMaterial);
+            heatmapMesh.rotation.x = -Math.PI / 2; // Lay flat
+            // Position it on the opponent's side (X > 0)
+            heatmapMesh.position.set(HALF_COURT_LENGTH / 2, 0.02, 0); // Centered on opponent half, slightly above ground
+             heatmapMesh.receiveShadow = false; // Don't receive shadows, might obscure colors
+            scene.add(heatmapMesh);
+
+            calculateAndDrawHeatmap(); // Calculate initial heatmap
+            updateHeatmapVisibility(); // Set initial visibility based on checkbox
+        }
+
+        function calculateAndDrawHeatmap() {
+            console.log("Calculating heatmap...");
+            const startPos = new THREE.Vector2( // Use current start X/Z for distance calcs
+                 parseFloat(inputs.startPosX.value),
+                 parseFloat(inputs.startPosZ.value)
+             );
+             const startHeight = parseFloat(inputs.startPosY.value); // Approx starting height for time estimation
+
+             for (let i = 0; i < HEATMAP_RESOLUTION_X; i++) {
+                 for (let j = 0; j < HEATMAP_RESOLUTION_Z; j++) {
+                     // Calculate world coordinates (x, z) for the center of this cell
+                     // Mapping i -> x (0 to HALF_COURT_LENGTH), j -> z (-HALF_COURT_WIDTH to HALF_COURT_WIDTH)
+                     const cellX = (i + 0.5) / HEATMAP_RESOLUTION_X * HALF_COURT_LENGTH;
+                     const cellZ = ((j + 0.5) / HEATMAP_RESOLUTION_Z - 0.5) * COURT_WIDTH;
+                     const landingPos = new THREE.Vector2(cellX, cellZ);
+
+                     // --- Estimate Difficulty Factors ---
+                     // 1. Flight Time Estimation (Very rough, based on straight line distance)
+                     const dist2D = landingPos.distanceTo(startPos);
+                     const dist3D = Math.sqrt(dist2D**2 + startHeight**2);
+                     const avgSpeedEstimate = 15; // m/s - wild guess
+                     const estimatedFlightTime = Math.max(0.1, dist3D / avgSpeedEstimate); // Avoid division by zero
+
+                     // 2. Landing Speed Estimation (Even rougher, let's use a fixed value or simple decay)
+                     // const estimatedLandingSpeed = Math.max(MIN_LANDING_SPEED, MAX_LANDING_SPEED - estimatedFlightTime * 5); // Decrease speed with time
+                       const estimatedLandingSpeed = 12; // Simpler: Use a constant average estimate
+
+                     // 3. Positional Factor (Distance to nearest player & reach penalty)
+                      const difficultyPos = calculatePositionalDifficulty(landingPos);
+
+
+                     // --- Calculate Overall Score ---
+                     const score = calculateDifficultyScore(
+                         estimatedFlightTime,
+                         estimatedLandingSpeed,
+                         difficultyPos.distance,
+                         difficultyPos.isInReach
+                     );
+
+                     heatmapData[i][j] = score;
+                 }
+             }
+            console.log("Heatmap calculation complete. Drawing texture.");
+            drawHeatmapTexture();
+        }
+
+        function calculatePositionalDifficulty(landingPosVec2) {
+             let minPlayerDist = Infinity;
+             let isInReach = false;
+
+             PLAYER_POSITIONS.forEach(playerPos => {
+                 const dist = landingPosVec2.distanceTo(playerPos);
+                 minPlayerDist = Math.min(minPlayerDist, dist);
+                 if (dist <= PLAYER_REACH_RADIUS) {
+                     isInReach = true;
+                 }
+             });
+             return { distance: minPlayerDist, isInReach: isInReach };
+        }
+
+
+        function calculateDifficultyScore(flightTime, landingSpeed, playerDist, isInReach) {
+             // Normalize factors (clamp between 0 and 1)
+             const invTime = 1 / Math.max(0.01, flightTime); // Avoid division by zero
+             const normTime = Math.max(0, Math.min(1, (invTime - MIN_INV_FLIGHT_TIME) / (MAX_INV_FLIGHT_TIME - MIN_INV_FLIGHT_TIME)));
+
+             const normSpeed = Math.max(0, Math.min(1, (landingSpeed - MIN_LANDING_SPEED) / (MAX_LANDING_SPEED - MIN_LANDING_SPEED)));
+
+             const normDist = Math.max(0, Math.min(1, (playerDist - MIN_PLAYER_DIST) / (MAX_PLAYER_DIST - MIN_PLAYER_DIST)));
+
+             // Combine weighted scores
+             let score = HEATMAP_WEIGHT_TIME * normTime +
+                         HEATMAP_WEIGHT_SPEED * normSpeed +
+                         HEATMAP_WEIGHT_POS * normDist;
+
+             // Apply penalty if landing within player reach zone
+             if (isInReach) {
+                 score *= 0.5; // Reduce difficulty significantly if easy to reach
+             }
+
+             // Final clamp
+             return Math.max(0, Math.min(1, score));
+         }
+
+
+        function drawHeatmapTexture() {
+            const cellWidth = 1; // Draw 1x1 pixel per cell on the small canvas
+            const cellHeight = 1;
+
+            for (let i = 0; i < HEATMAP_RESOLUTION_X; i++) {
+                for (let j = 0; j < HEATMAP_RESOLUTION_Z; j++) {
+                    const score = heatmapData[i][j];
+                    heatmapContext.fillStyle = getColorForValue(score);
+                    heatmapContext.fillRect(i * cellWidth, j * cellHeight, cellWidth, cellHeight);
+                }
+            }
+            heatmapTexture.needsUpdate = true; // Tell THREE.js to update the texture
+        }
+
+        // Function to map a value (0-1) to a color gradient (blue -> red)
+        function getColorForValue(value) {
+            // Clamp value
+            value = Math.max(0, Math.min(1, value));
+            // Simple linear interpolation between colors: Blue -> Cyan -> Green -> Yellow -> Red
+            // Corresponds to HSL hues: 240 -> 180 -> 120 -> 60 -> 0
+            const hue = (1.0 - value) * 240; // Hue ranges from 0 (red) to 240 (blue)
+            return `hsl(${hue}, 100%, 50%)`;
+        }
+
+        function updateHeatmapVisibility() {
+            showHeatmap = inputs.showHeatmap.checked;
+            if (heatmapMesh) {
+                heatmapMesh.visible = showHeatmap;
+            }
+             if(heatmapLegend) {
+                heatmapLegend.style.display = showHeatmap ? 'block' : 'none';
+             }
+        }
+
+        // --- Simulation Logic ---
+        function serve() {
+            // ... (rest of serve function remains the same)
+             if (simulationRunning) return;
+
+            // Reset previous trajectory
+            if (trajectoryLine) scene.remove(trajectoryLine);
+            trajectoryPoints = [];
+
+            // Store parameters for this serve
+            currentServeParams = getServeParameters();
+
+            // Reset ball state
+            resetBallPosition(); // Place ball at start position
+            ball.visible = true;
+
+            // Calculate initial velocity
+            const speed = currentServeParams.impulse;
+            const vAngleRad = THREE.MathUtils.degToRad(currentServeParams.vertAngle);
+            const hAngleRad = THREE.MathUtils.degToRad(currentServeParams.horizAngle);
+
+            ballState.velocity.y = speed * Math.sin(vAngleRad);
+            const horizontalSpeed = speed * Math.cos(vAngleRad);
+            ballState.velocity.x = horizontalSpeed * Math.cos(hAngleRad); // Towards positive X
+            ballState.velocity.z = horizontalSpeed * Math.sin(hAngleRad); // Sideways
+
+            ballState.time = 0;
+			ballState.timeSinceLastPhysicsUpdate = 0; // Initialize this
+
+             // Update wind vector based on current settings
+             updateWindVector(0); // Initial wind vector at time 0
+
+            resultsDiv.textContent = "Result: Serving...";
+            simulationRunning = true;
+        }
+
+        function runSimulationStep(dt) {
+            // ... (physics calculations remain the same - gravity, wind, drag) ...
+            if (!simulationRunning) return;
+
+             ballState.time += dt;
+
+             // 1. Calculate Forces (Acceleration)
+             const acceleration = new THREE.Vector3(0, -GRAVITY, 0);
+
+             // Wind Force
+             if (windParams.type !== 'none') {
+                 if (windParams.type === 'changing') {
+                     updateWindVector(ballState.time); // Update wind for changing type
+                 }
+                 acceleration.add(windParams.vector);
+             }
+
+			 // --- Air Drag Calculation ---
+			 const speed = ballState.velocity.length();
+			 if (speed > 0.01) {
+			     const dragAccelerationMagnitude = DRAG_FACTOR * speed * speed;
+			     const dragAcceleration = ballState.velocity.clone().normalize().multiplyScalar(-dragAccelerationMagnitude);
+			     acceleration.add(dragAcceleration);
+			 }
+
+             // 2. Update Velocity
+             ballState.velocity.add(acceleration.multiplyScalar(dt));
+
+             // 3. Update Position
+             const deltaPosition = ballState.velocity.clone().multiplyScalar(dt);
+			 const prevPosition  = ballState.position.clone();
+             ballState.position.add(deltaPosition);
+
+             // Add current position to trajectory
+             trajectoryPoints.push(ballState.position.clone());
+
+             // 4. Update Ball Mesh Position
+             ball.position.copy(ballState.position);
+
+             // 5. Check for Collisions / End Conditions
+             checkSimulationEndConditions(prevPosition);
+        }
+
+        function checkSimulationEndConditions( prevPosition ) {
+            const pos = ballState.position;
+            const vel = ballState.velocity;
+
+            // Hit Ground
+            if (pos.y <= BALL_RADIUS) {
+                pos.y = BALL_RADIUS; // Place exactly on ground
+                ball.position.copy(pos); // Update mesh one last time
+                simulationRunning = false;
+                classifyResult('ground', ballState.time, vel.length()); // Pass time and final speed
+                createTrajectoryLine(); // Draw path after landing
+                return;
+            }
+
+            // --- Revised Hit Net Check ---
+			if (prevPosition.x <= NET_THICKNESS / 2 && pos.x > NET_THICKNESS / 2 && vel.x > 0) { // Approaching net center from server side
+                 // Simple check first: Are we roughly within the net's height and width bounds?
+                if (pos.y < NET_HEIGHT + BALL_RADIUS && Math.abs(pos.z) < HALF_COURT_WIDTH + NET_POLE_RADIUS) {
+                     // More precise check: Interpolate position at x = NET_THICKNESS / 2
+                     const t_intersection = (vel.x !== 0) ? (NET_THICKNESS / 2 - prevPosition.x) / vel.x : 0;
+
+                     if (t_intersection >= 0 && t_intersection <= TIME_STEP) { // Check within this step
+                         const collisionY = prevPosition.y + vel.y * t_intersection;
+                         const collisionZ = prevPosition.z + vel.z * t_intersection;
+
+                         if (collisionY <= NET_HEIGHT + BALL_RADIUS && // Check Y height at collision time
+                             Math.abs(collisionZ) <= HALF_COURT_WIDTH + NET_POLE_RADIUS) // Check Z width at collision time
+                         {
+                              // console.log("Net collision detected via interval check.");
+                              simulationRunning = false;
+                              // Place ball visually at the interpolated collision point
+                              pos.set(NET_THICKNESS / 2 + BALL_RADIUS, collisionY, collisionZ); // Slightly outside net
+                              ball.position.copy(pos);
+                              classifyResult('net');
+                              createTrajectoryLine();
+                              return; // Exit checks
+                         }
+                     }
+                }
+            }
+
+            // Ball went very far out of bounds
+            if (Math.abs(pos.x) > HALF_COURT_LENGTH * 2 || Math.abs(pos.z) > HALF_COURT_WIDTH * 2) {
+                simulationRunning = false;
+                resultsDiv.textContent = "Result: Way Out!";
+                createTrajectoryLine();
+                return;
+            }
+        }
+
+         function classifyResult(reason, flightTime = 0, landingSpeed = 0) {
+            const pos = ballState.position;
+            let resultText = "Result: ";
+
+            if (reason === 'net') {
+                resultText += "Net";
+            } else if (reason === 'ground') {
+                 if (pos.x <= 0) {
+                    resultText += "Out (Didn't cross net)";
+                 } else if (pos.x > HALF_COURT_LENGTH) {
+                     resultText += "Out (Long)";
+                 } else if (Math.abs(pos.z) > HALF_COURT_WIDTH) {
+                     resultText += "Out (Wide)";
+                 } else {
+                     // Valid Serve - Calculate and display difficulty
+                     resultText += "Valid Serve";
+                     const landingPosVec2 = new THREE.Vector2(pos.x, pos.z);
+                     const posDifficulty = calculatePositionalDifficulty(landingPosVec2);
+                     const difficultyScore = calculateDifficultyScore(
+                         flightTime,
+                         landingSpeed,
+                         posDifficulty.distance,
+                         posDifficulty.isInReach
+                     );
+                     // Add difficulty info to the results
+                      resultText += `\nDifficulty: ${(difficultyScore * 100).toFixed(0)}%`;
+                      resultText += ` (T: ${flightTime.toFixed(2)}s, V: ${landingSpeed.toFixed(1)}m/s)`;
+                 }
+            } else {
+                resultText = "Result: Unknown"; // Should not happen
+            }
+             resultsDiv.textContent = resultText;
+        }
+
+
+        // --- Optimization Logic ---
+        // (optimizeAngles, runHeadlessSimulation, classifyHeadlessResult remain largely the same)
+		function updateAndDisplayControl(inputId, newValue) {
+		    const inputElement = inputs[inputId];
+		    const displayElement = valueDisplays[inputId];
+		    if (inputElement && displayElement) {
+		        inputElement.value = newValue;
+		        let displayValue = newValue;
+		        if (inputElement.type !== 'select-one' && inputElement.type !== 'checkbox') {
+                   displayValue = parseFloat(newValue).toFixed(1);
+                }
+		        if (inputId === 'windDirection' || inputId === 'vertAngle' || inputId === 'horizAngle') {
+		             displayValue = parseInt(newValue);
+		        }
+		        if(inputElement.type !== 'checkbox') { // Don't update text for checkbox
+                   displayElement.textContent = displayValue;
+                }
+		    }
+		}
+
+		function optimizeAngles() {
+		    showLoading(true);
+		    resultsDiv.textContent = "Result: Optimizing...";
+
+		    setTimeout(() => {
+		        const baseParams = getServeParameters();
+		        const originalVertAngle = baseParams.vertAngle;
+		        const originalImpulse = baseParams.impulse;
+		        const fixedHorizAngle = baseParams.horizAngle;
+
+		        let foundParams = null;
+		        let foundPhase = 0;
+
+		        const vAngleMin = 1, vAngleMax = 60, vAngleStep = 1;
+		        const impulseRange = 5.0;
+		        const impulseStep = 0.5;
+		        const impulseMin = Math.max(5.0, originalImpulse - impulseRange);
+		        const impulseMax = Math.min(30.0, originalImpulse + impulseRange);
+
+		        console.log(`Optimizing: Start VAngle=${originalVertAngle}, Start Impulse=${originalImpulse}, Fixed HAngle=${fixedHorizAngle}`);
+		        console.log(` Searching VAngle: ${vAngleMin}-${vAngleMax}, Step ${vAngleStep}`);
+
+
+		        // Phase 1: Adjusting Vertical Angle only
+		        console.log("--- Phase 1: Adjusting Vertical Angle ---");
+		        for (let vAngle = vAngleMin; vAngle <= vAngleMax; vAngle += vAngleStep) {
+		            const testParams = { ...baseParams, vertAngle: vAngle, impulse: originalImpulse };
+		            const result = runHeadlessSimulation(testParams);
+		            if (result.classification === 'Valid') {
+		                foundParams = { vertAngle: vAngle, impulse: originalImpulse };
+		                foundPhase = 1;
+		                console.log(` Found valid in Phase 1: VAngle=${vAngle}`);
+		                break;
+		            }
+		        }
+
+		        // Phase 2: Adjusting Angle AND Impulse (if Phase 1 failed)
+		        if (!foundParams) {
+		            console.log("--- Phase 2: Adjusting Vertical Angle & Impulse ---");
+		            console.log(` Searching Impulse: ${impulseMin}-${impulseMax}, Step ${impulseStep}`);
+		            let phase2Found = false;
+		            for (let impulse = impulseMin; impulse <= impulseMax; impulse += impulseStep) {
+		                 for (let vAngle = vAngleMin; vAngle <= vAngleMax; vAngle += vAngleStep) {
+		                    const testParams = { ...baseParams, vertAngle: vAngle, impulse: impulse };
+		                    const result = runHeadlessSimulation(testParams);
+		                    if (result.classification === 'Valid') {
+		                        foundParams = { vertAngle: vAngle, impulse: impulse };
+		                        foundPhase = 2;
+		                        console.log(` Found valid in Phase 2: VAngle=${vAngle}, Impulse=${impulse.toFixed(1)}`);
+		                        phase2Found = true;
+		                        break;
+		                    }
+		                }
+		                 if (phase2Found) break;
+		            }
+		        }
+
+		        // Handle Results
+		        showLoading(false);
+		        if (foundParams) {
+		            updateAndDisplayControl('vertAngle', foundParams.vertAngle);
+		            updateAndDisplayControl('impulse', foundParams.impulse);
+		            resetBallPosition();
+                    // Re-calculate heatmap based on NEW serve start pos if changed by optimization (unlikely here, but good practice)
+                    // calculateAndDrawHeatmap(); // Could uncomment if optimization changed start pos
+
+		            if (foundPhase === 1) {
+		                 resultsDiv.textContent = `Result: Valid serve found (V: ${foundParams.vertAngle}°, Speed: ${foundParams.impulse.toFixed(1)} m/s). Angle adjusted. Serve again.`;
+		            } else {
+		                 resultsDiv.textContent = `Result: Valid serve found (V: ${foundParams.vertAngle}°, Speed: ${foundParams.impulse.toFixed(1)} m/s). Angle & Speed adjusted. Serve again.`;
+		            }
+		        } else {
+		            updateAndDisplayControl('vertAngle', originalVertAngle);
+		            updateAndDisplayControl('impulse', originalImpulse);
+		            resetBallPosition();
+		            resultsDiv.textContent = "Result: No valid serve found adjusting angle/speed. Original values restored.";
+		            console.log(" Optimization failed to find a valid serve.");
+		        }
+		    }, 50);
+		}
+
+        function runHeadlessSimulation(params) {
+             let simState = {
+                 position: new THREE.Vector3(params.startPosX, params.startPosY, params.startPosZ),
+                 velocity: new THREE.Vector3(),
+                 time: 0
+             };
+             let currentWindVector = new THREE.Vector3();
+
+             // Initial velocity
+             const speed = params.impulse;
+             const vAngleRad = THREE.MathUtils.degToRad(params.vertAngle);
+             const hAngleRad = THREE.MathUtils.degToRad(params.horizAngle);
+             simState.velocity.y = speed * Math.sin(vAngleRad);
+             const horizontalSpeed = speed * Math.cos(vAngleRad);
+             simState.velocity.x = horizontalSpeed * Math.cos(hAngleRad);
+             simState.velocity.z = horizontalSpeed * Math.sin(hAngleRad);
+
+             // Wind setup
+             const windDirRad = THREE.MathUtils.degToRad(params.windDirection);
+             const baseWind = new THREE.Vector3(Math.cos(windDirRad), 0, Math.sin(windDirRad)).multiplyScalar(params.windStrength);
+
+             const maxSimTime = 10;
+             const dt = TIME_STEP;
+
+             while (simState.time < maxSimTime) {
+                 simState.time += dt;
+                 const prevPos = simState.position.clone(); // Store previous position
+
+                 // Physics Update
+                 const acceleration = new THREE.Vector3(0, -GRAVITY, 0);
+                 if (params.windType !== 'none') {
+                      if (params.windType === 'constant') {
+                          currentWindVector.copy(baseWind);
+                      } else if (params.windType === 'changing') {
+                          const changeFactor = (Math.sin(simState.time * Math.PI) + 1) / 2;
+                          currentWindVector.copy(baseWind).multiplyScalar(changeFactor);
+                      }
+                      acceleration.add(currentWindVector);
+                 }
+                 const currentSpeed = simState.velocity.length();
+                 if (currentSpeed > 0.01) {
+                     const dragAccMag = DRAG_FACTOR * currentSpeed * currentSpeed;
+                     const dragAcc = simState.velocity.clone().normalize().multiplyScalar(-dragAccMag);
+                     acceleration.add(dragAcc);
+                 }
+                 simState.velocity.add(acceleration.clone().multiplyScalar(dt));
+                 simState.position.add(simState.velocity.clone().multiplyScalar(dt));
+
+                 // Check End Conditions
+                 const pos = simState.position;
+                 const vel = simState.velocity;
+
+                 if (pos.y <= BALL_RADIUS) {
+                     pos.y = BALL_RADIUS;
+                     return { position: pos, classification: classifyHeadlessResult(pos, 'ground', params), time: simState.time };
+                 }
+
+                 // Headless Net Check (simplified x=0 check)
+                 if (prevPos.x <= 0 && pos.x > 0 && vel.x > 0) {
+                     const t_intersection = (vel.x !== 0) ? -prevPos.x / vel.x : 0;
+                     if (t_intersection >= 0 && t_intersection <= dt) {
+                         const collisionY = prevPos.y + vel.y * t_intersection;
+                         const collisionZ = prevPos.z + vel.z * t_intersection;
+                         if (collisionY <= NET_HEIGHT + BALL_RADIUS && Math.abs(collisionZ) <= HALF_COURT_WIDTH + NET_POLE_RADIUS) {
+                             pos.set(0, collisionY, collisionZ);
+                             return { position: pos, classification: 'Net', time: simState.time };
+                         }
+                     }
+                 }
+             }
+             return { position: simState.position, classification: 'Out (Long/Timeout)', time: simState.time };
+         }
+
+         function classifyHeadlessResult(finalPos, reason, params) {
+             const pos = finalPos;
+             if (reason === 'ground') {
+                 if (pos.x <= 0) return "Out (Didn't cross net)";
+                 if (pos.x > HALF_COURT_LENGTH) return "Out (Long)";
+                 if (Math.abs(pos.z) > HALF_COURT_WIDTH) return "Out (Wide)";
+                 return "Valid";
+             }
+             return "Unknown";
+         }
+
+
+        // --- Helpers ---
+        function getServeParameters() {
+            return {
+                startPosX: parseFloat(inputs.startPosX.value),
+                startPosY: parseFloat(inputs.startPosY.value),
+                startPosZ: parseFloat(inputs.startPosZ.value),
+                vertAngle: parseFloat(inputs.vertAngle.value),
+                horizAngle: parseFloat(inputs.horizAngle.value),
+                impulse: parseFloat(inputs.impulse.value),
+                windType: inputs.windType.value,
+                windStrength: parseFloat(inputs.windStrength.value),
+                windDirection: parseFloat(inputs.windDirection.value)
+            };
+        }
+
+        function resetBallPosition() {
+            const params = getServeParameters();
+            ballState.position.set(params.startPosX, params.startPosY, params.startPosZ);
+            ballState.velocity.set(0, 0, 0);
+            if (ball) {
+                 ball.position.copy(ballState.position);
+                 ball.visible = true;
+            }
+             if (trajectoryLine) scene.remove(trajectoryLine);
+             trajectoryPoints = [];
+        }
+
+         function updateWindVector(time) {
+             // ... (wind vector logic remains the same) ...
+             windParams.type = inputs.windType.value;
+            windParams.strength = parseFloat(inputs.windStrength.value);
+            windParams.directionRad = THREE.MathUtils.degToRad(parseFloat(inputs.windDirection.value));
+
+             if (windParams.type === 'none' || windParams.strength === 0) {
+                 windParams.vector.set(0, 0, 0);
+             } else {
+                 let currentStrength = windParams.strength;
+                 if (windParams.type === 'changing') {
+                     const frequency = 0.5;
+                     const amplitudeFactor = 0.5;
+                     currentStrength *= (1 + amplitudeFactor * Math.sin(2 * Math.PI * frequency * time));
+                 }
+                 windParams.vector.set(
+                     Math.cos(windParams.directionRad) * currentStrength,
+                     0,
+                     Math.sin(windParams.directionRad) * currentStrength
+                 );
+             }
+         }
+
+        function updateCameraView() {
+            // ... (camera view logic remains the same) ...
+              const view = inputs.cameraView.value;
+            const startPos = ball ? ball.position : new THREE.Vector3(inputs.startPosX.value, inputs.startPosY.value, inputs.startPosZ.value);
+            const target = new THREE.Vector3(0, NET_HEIGHT / 2, 0); // Look towards center of net
+
+            controls.enabled = (view === 'orbit'); // Only enable OrbitControls for orbit view
+
+             if (view === 'side') {
+                camera.position.set(0, 5, COURT_WIDTH * 1.5); // Side view from Z+
+                 camera.lookAt(target);
+                 controls.target.copy(target);
+             } else if (view === 'top') {
+                camera.position.set(0, COURT_LENGTH * 1.2 , 0); // Adjusted top view height
+                 camera.lookAt(scene.position); // Look at center of scene (0,0,0)
+                 controls.target.copy(scene.position);
+             } else if (view === 'server') {
+                 const behindOffset = 2;
+                 const upOffset = 1;
+                 const serverViewPos = startPos.clone().add(new THREE.Vector3(-behindOffset * Math.cos(THREE.MathUtils.degToRad(inputs.horizAngle.value)), upOffset, -behindOffset * Math.sin(THREE.MathUtils.degToRad(inputs.horizAngle.value)) ));
+                 camera.position.copy(serverViewPos);
+                 const lookTarget = new THREE.Vector3(HALF_COURT_LENGTH * 0.1, NET_HEIGHT * 0.8, 0);
+                 camera.lookAt(lookTarget);
+                 controls.target.copy(lookTarget);
+             } else if (view === 'orbit') {
+                // Reset to a reasonable default orbit position if switching TO orbit
+                 if (!controls.enabled) {
+                    camera.position.set(-HALF_COURT_LENGTH * 1.2, 5, COURT_WIDTH * 1.1);
+                    controls.target.set(0, 1, 0);
+                 }
+             }
+            controls.update();
+        }
+
+        // --- UI Handlers ---
+        function setupControlsListeners() {
+            // Update display values and reset ball/heatmap if needed
+            for (const key in inputs) {
+                if (inputs[key].type === 'checkbox') continue; // Skip checkbox for value display update
+                if (valueDisplays[key]) {
+                    inputs[key].addEventListener('input', () => {
+                        let value = inputs[key].value;
+                        if (inputs[key].type !== 'select-one') value = parseFloat(value).toFixed(1);
+                        if(key === 'windDirection' || key === 'vertAngle' || key === 'horizAngle') value = parseInt(value);
+                        valueDisplays[key].textContent = value;
+
+                        if (!simulationRunning) {
+                            if (key === 'startPosX' || key === 'startPosY' || key === 'startPosZ') {
+                                 resetBallPosition();
+                                 updateCameraView(); // Update server view if it depends on start pos
+                                 // Recalculate heatmap if start position changes, as distance estimate depends on it
+                                 calculateAndDrawHeatmap();
+                             }
+                        }
+                        if (key === 'windStrength' || key === 'windDirection' || key === 'windType') {
+                             updateWindVector(ballState.time);
+                        }
+                    });
+                }
+            }
+
+            // Heatmap checkbox listener
+             inputs.showHeatmap.addEventListener('change', updateHeatmapVisibility);
+
+            // Camera view change
+            inputs.cameraView.addEventListener('change', updateCameraView);
+
+            // Buttons
+            serveButton.addEventListener('click', serve);
+            optimizeButton.addEventListener('click', optimizeAngles);
+        }
+
+        function updateControlsDisplay() {
+             // Set initial display values
+            for (const key in inputs) {
+                 if (inputs[key].type === 'checkbox') continue; // Skip checkbox
+                 if (valueDisplays[key]) {
+                     let value = inputs[key].value;
+                     if (inputs[key].type !== 'select-one') value = parseFloat(value).toFixed(1);
+                     if(key === 'windDirection' || key === 'vertAngle' || key === 'horizAngle') value = parseInt(value);
+                     valueDisplays[key].textContent = value;
+                 }
+            }
+             // Set initial checkbox state
+            inputs.showHeatmap.checked = showHeatmap;
+             updateHeatmapVisibility(); // Update visibility based on initial state
+        }
+
+        function showLoading(show) {
+             loadingIndicator.style.display = show ? 'block' : 'none';
+             optimizeButton.disabled = show;
+             serveButton.disabled = show;
+        }
+
+        function onWindowResize() {
+            const newWidth = simContainer.clientWidth;
+            const newHeight = simContainer.clientHeight;
+            camera.aspect = newWidth / newHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(newWidth, newHeight);
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            const deltaTime = clock.getDelta();
+
+            if (simulationRunning) {
+                // Fixed time step physics updates
+		        ballState.timeSinceLastPhysicsUpdate += deltaTime;
+		        const stepsToRun = Math.floor(ballState.timeSinceLastPhysicsUpdate / TIME_STEP);
+		        for (let i = 0; i < stepsToRun && simulationRunning; i++) {
+		             runSimulationStep(TIME_STEP);
+		        }
+		        ballState.timeSinceLastPhysicsUpdate -= stepsToRun * TIME_STEP;
+            } else {
+                 ballState.timeSinceLastPhysicsUpdate = 0;
+            }
+
+            if (controls.enabled) {
+                controls.update();
+            }
+            renderer.render(scene, camera);
+        }
+
+        // --- Start ---
+        init();
+
+    </script>
+
+</body>
+</html>
