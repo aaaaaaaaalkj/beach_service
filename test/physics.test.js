@@ -131,27 +131,35 @@ test('difficulty score', () => {
     assert.equal(difficultyScore({ ...result, classification: 'Out (Long)' }), 0);
 });
 
-test('drag crisis: drag coefficient drops above the critical speed', () => {
-    const aero = { dragCrisis: true, criticalSpeed: 17 };
-    assert.ok(Math.abs(dragCoefficient(5, aero) - 0.5) < 0.01);
-    assert.ok(Math.abs(dragCoefficient(30, aero) - 0.2) < 0.01);
-    assert.ok(Math.abs(dragCoefficient(17, aero) - 0.35) < 1e-9, 'midpoint at the critical speed');
+test('drag curves: measured VLS 300 data and the critical point', () => {
+    const vls = v => dragCoefficient(v, { dragModel: 'vls300' });
+    assert.equal(vls(15.4), 0.155);                    // Measured minimum
+    assert.ok(vls(11.4) > 0.3 && vls(11.8) < 0.3);    // Cd = 0.3 at Re_crit = 186 000 (≈ 11.6 m/s)
+    assert.equal(vls(40), 0.18);                       // Held constant beyond the data
+    assert.ok(dragCoefficient(20, { dragModel: 'mva200' }) < dragCoefficient(13, { dragModel: 'mva200' }));
+    assert.equal(dragCoefficient(25, { dragModel: 'constant' }), 0.45);
+});
+
+test('custom drag crisis: drag drops above the critical speed', () => {
+    const aero = { dragModel: 'custom', criticalSpeed: 17 };
+    assert.ok(Math.abs(dragCoefficient(5, aero) - 0.45) < 0.01);
+    assert.ok(Math.abs(dragCoefficient(30, aero) - 0.18) < 0.01);
+    assert.ok(Math.abs(dragCoefficient(17, aero) - 0.315) < 1e-9, 'midpoint at the critical speed');
     for (let v = 1; v < 40; v++) assert.ok(dragCoefficient(v + 1, aero) <= dragCoefficient(v, aero));
-    assert.equal(dragCoefficient(25, { dragCrisis: false }), 0.45);
 });
 
 test('drag crisis: a fast float serve carries farther, then brakes harder', () => {
-    const settings = { launchSpeed: 19, verticalAngle: 8, contactHeight: 2.8 };
-    const withCrisis = serve({ ...settings, dragCrisis: true });
-    const constant = serve({ ...settings, dragCrisis: false });
+    const settings = { launchSpeed: 17, verticalAngle: 10, contactHeight: 2.8 };
+    const withCrisis = serve({ ...settings, dragModel: 'vls300' });
+    const constant = serve({ ...settings, dragModel: 'constant' });
     // Early in the flight the supercritical ball has less drag than the constant-drag ball
     for (let i = 0; i < 200; i++) { withCrisis.step(); constant.step(); }
     assert.ok(withCrisis.velocity.length() > constant.velocity.length());
     // Deceleration rises as the ball falls below the critical speed
     const decel = sim => -sim.acceleration(sim.velocity, new Vector3()).dot(sim.velocity.clone().normalize());
-    const fast = serve({ ...settings, launchSpeed: 19 });
-    const slower = serve({ ...settings, launchSpeed: 16 });
-    assert.ok(decel(slower) > decel(fast), 'a 16 m/s ball brakes harder than a 19 m/s ball');
+    const fast = serve({ ...settings, launchSpeed: 15 });
+    const slower = serve({ ...settings, launchSpeed: 11 });
+    assert.ok(decel(slower) > decel(fast), 'an 11 m/s ball brakes harder than a 15 m/s ball');
 });
 
 // Position where a serve reaches the receiver plane x = 5 m
@@ -216,6 +224,16 @@ test('ghost path: drift is zero without knuckling and the ghost is the knuckle-f
     assert.ok(ghostPoints.at(-1).distanceTo(ghostLanding) < 1e-9);
     assert.ok(drift > 0);
     assert.equal(predictFloat({ ...settings, spin: 8 }).drift < drift, true, 'spin reduces drift');
+});
+
+test('ghost path: no drift value after a net tape contact', () => {
+    const tapeSettings = { ...BASE, launchSpeed: 18, verticalAngle: 10, knuckleStrength: 0 };
+    let touched = null;
+    for (let h = 2.2; h <= 2.8 && !touched; h += 0.01) {
+        if (serve({ ...tapeSettings, contactHeight: h }).runToEnd().touchedTape) touched = h;
+    }
+    assert.ok(touched !== null);
+    assert.equal(predictFloat({ ...tapeSettings, contactHeight: touched }).drift, null);
 });
 
 test('difficulty rewards knuckle drift', () => {

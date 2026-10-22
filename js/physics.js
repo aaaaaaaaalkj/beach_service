@@ -12,18 +12,38 @@ export const MAX_FLIGHT_TIME = 10; // s, safety stop
 
 // Air drag. Above a critical Reynolds number the boundary layer turns turbulent, separates later and
 // drag drops sharply ("drag crisis"). A float serve starts above and ends below it, so it brakes late.
-// The values are estimates for a volleyball; the critical speed depends on the ball's surface.
 const AIR_KINEMATIC_VISCOSITY = 1.5e-5; // m^2/s at ~20 °C
-const CONSTANT_DRAG_COEFFICIENT = 0.45; // Used when the drag crisis is switched off
-const DRAG_SUBCRITICAL = 0.5;           // Slow ball: laminar boundary layer
-const DRAG_SUPERCRITICAL = 0.2;         // Fast ball: turbulent boundary layer
-const DRAG_TRANSITION_WIDTH = 0.06;     // Width of the transition, relative to the critical Reynolds number
-// criticalSpeed in m/s; knuckleStrength = typical side-force coefficient of a non-spinning ball
-export const DEFAULT_AERO = { dragCrisis: true, criticalSpeed: 17, knuckleStrength: 0.06 };
+const CONSTANT_DRAG_COEFFICIENT = 0.45; // 'constant' drag model
+const DRAG_SUBCRITICAL = 0.45;          // 'custom' model: slow ball, laminar boundary layer
+const DRAG_SUPERCRITICAL = 0.18;        // 'custom' model: fast ball, turbulent boundary layer
+const DRAG_TRANSITION_WIDTH = 0.06;     // 'custom' model: transition width relative to the critical Reynolds number
+
+// Measured drag curves as [air speed (m/s), Cd], interpolated linearly and held constant beyond the ends.
+// Source: Dumek & Urban, "Measurement of Surface Roughness of Volleyball", Acta Mechanica Slovaca 22 (2018),
+// Fig. 4 (read off the chart). Reynolds numbers there are converted to speed with the diameters of their
+// Table 1 (VLS 300: 0.24 m, MVA 200: 0.218 m) and ν = 1.5e-5 m²/s; for the VLS 300 this maps the data onto
+// the 10-25 m/s range of the wind tunnel. Points marked "assumed" are not measured.
+export const DRAG_CURVES = {
+    vls300: [ // Mikasa VLS 300, official FIVB beach ball
+        [0, 0.45], [7.5, 0.45], // assumed: subcritical plateau, extrapolated from the measured slope
+        [10.3, 0.35], [15.4, 0.155], [17.5, 0.17], [19.5, 0.175], [21.6, 0.185], [25.8, 0.18],
+    ],
+    mva200: [ // Mikasa MVA 200, indoor ball
+        [5.9, 0.465], [8.6, 0.455], [10.3, 0.437], [11.8, 0.45], [12.3, 0.435], [12.7, 0.407], [13.8, 0.363],
+        [14.6, 0.307], [15.7, 0.27], [16.5, 0.238], [17.5, 0.211], [19.7, 0.178], [21.3, 0.136], [23.4, 0.138],
+        [25.3, 0.143], [27.0, 0.146], [29.1, 0.162],
+    ],
+};
+
+// dragModel: 'vls300' | 'mva200' (measured), 'custom' (drag crisis at criticalSpeed, m/s), 'constant'.
+// knuckleStrength: typical side-force coefficient of a non-spinning ball.
+export const DEFAULT_AERO = { dragModel: 'vls300', criticalSpeed: 12, knuckleStrength: 0.06 };
 
 // Knuckling: without spin, the panels and seams stay in place relative to the airflow and the air separates
 // unevenly, pushing the ball sideways. The push depends on how the ball's surface faces the flow, so it
-// changes as the ball slowly turns. Spin averages it out.
+// changes as the ball slowly turns. Spin averages it out. Wind tunnel data for the Mikasa VLS 300 at 0 rps
+// (Dumek & Šafařík, EPJ Web of Conferences 180, 02021 (2018), Figs. 7 and 9) shows lift and side force
+// coefficients of roughly ±0.05-0.1, in line with the default strength; the orientation dependence is modelled.
 const KNUCKLE_SPIN_SCALE = 0.02;       // Spin parameter Rω/v at which the knuckle force has halved
 const MAX_RESIDUAL_SPIN = 0.5;         // rev/s, leftover spin of a float serve (set per serve by the seed)
 const SURFACE_PATTERN_SEED = 10;       // Fixed: the pattern belongs to the ball, not to the serve
@@ -40,20 +60,20 @@ export const RECEIVER_POSITIONS = [
     new Vector3(COURT_LENGTH * 0.3, 0, -COURT_WIDTH * 0.25),
 ];
 
-// Serve presets per gender. Each lands about 6 m past the net (center position, no wind, no knuckle)
-// and clears the net by 0.3 - 0.8 m.
+// Serve presets per gender. Each lands about 6 m past the net (center position, no wind, no knuckle,
+// VLS 300 drag) and clears the net by 0.3 - 0.8 m.
 export const SERVE_PRESETS = {
     float: {
-        male: { contactHeight: 2.6, launchSpeed: 16.5, verticalAngle: 16, spin: 0 },
-        female: { contactHeight: 2.4, launchSpeed: 17, verticalAngle: 15, spin: 0 },
+        male: { contactHeight: 2.6, launchSpeed: 14.5, verticalAngle: 17, spin: 0 },
+        female: { contactHeight: 2.4, launchSpeed: 15, verticalAngle: 15, spin: 0 },
     },
     jumpFloat: {
-        male: { contactHeight: 3.0, launchSpeed: 18, verticalAngle: 8, spin: 0 },
-        female: { contactHeight: 2.8, launchSpeed: 18.5, verticalAngle: 7, spin: 0 },
+        male: { contactHeight: 3.0, launchSpeed: 15.5, verticalAngle: 10, spin: 0 },
+        female: { contactHeight: 2.8, launchSpeed: 16, verticalAngle: 9, spin: 0 },
     },
     topspinJump: {
-        male: { contactHeight: 3.2, launchSpeed: 20.5, verticalAngle: 8, spin: 8 },
-        female: { contactHeight: 3.0, launchSpeed: 21.5, verticalAngle: 7, spin: 8 },
+        male: { contactHeight: 3.2, launchSpeed: 18.5, verticalAngle: 10, spin: 8 },
+        female: { contactHeight: 3.0, launchSpeed: 21, verticalAngle: 7, spin: 8 },
     },
 };
 
@@ -97,9 +117,24 @@ export function reynoldsNumber(speed) {
     return speed * 2 * BALL_RADIUS / AIR_KINEMATIC_VISCOSITY;
 }
 
+function interpolateCurve(curve, x) {
+    if (x <= curve[0][0]) return curve[0][1];
+    for (let i = 1; i < curve.length; i++) {
+        const [x1, y1] = curve[i];
+        if (x <= x1) {
+            const [x0, y0] = curve[i - 1];
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+        }
+    }
+    return curve.at(-1)[1];
+}
+
 // Drag coefficient for the speed of the ball relative to the air
 export function dragCoefficient(relSpeed, aero = DEFAULT_AERO) {
-    if (!aero.dragCrisis) return CONSTANT_DRAG_COEFFICIENT;
+    const curve = DRAG_CURVES[aero.dragModel];
+    if (curve) return interpolateCurve(curve, relSpeed);
+    if (aero.dragModel === 'constant') return CONSTANT_DRAG_COEFFICIENT;
+
     const criticalRe = reynoldsNumber(aero.criticalSpeed);
     const x = (reynoldsNumber(relSpeed) - criticalRe) / (DRAG_TRANSITION_WIDTH * criticalRe);
     return DRAG_SUPERCRITICAL + (DRAG_SUBCRITICAL - DRAG_SUPERCRITICAL) / (1 + Math.exp(x));
@@ -206,7 +241,7 @@ export function difficultyScore({ classification, speed, time, position, drift =
 
 export class ServeSimulation {
     // position/velocity: Vector3 at contact; spin: rev/s, positive = topspin; windVelocity: Vector3 (m/s);
-    // aero: { dragCrisis, criticalSpeed, knuckleStrength }; floatSeed: panel orientation and leftover spin
+    // aero: { dragModel, criticalSpeed, knuckleStrength }; floatSeed: panel orientation and leftover spin
     constructor({ position, velocity, netHeight, windVelocity = new Vector3(), spin = 0, aero = DEFAULT_AERO, floatSeed = 1 }) {
         this.position = position.clone();
         this.prevPosition = position.clone();
@@ -284,7 +319,7 @@ export class ServeSimulation {
             const spinRate = this.angularVelocity.length();
             if (spinRate > 0) {
                 const spinParameter = spinRate * BALL_RADIUS / relSpeed;
-                const liftCoefficient = 1 / (2 + 1 / spinParameter); // Empirical sphere fit
+                const liftCoefficient = 1 / (2 + 1 / spinParameter); // Sphere fit; ≈0.3 at s = 0.85 as measured for the VLS 300
                 this._force.crossVectors(this.angularVelocity, relVel).normalize()
                     .multiplyScalar(liftCoefficient * dynamicPressureArea);
                 out.add(this._force);
@@ -441,7 +476,7 @@ export function createServe(settings) {
         windVelocity: windVelocityFrom(settings.windEnabled, settings.windStrength, settings.windDirection),
         spin: settings.spin,
         aero: {
-            dragCrisis: settings.dragCrisis ?? DEFAULT_AERO.dragCrisis,
+            dragModel: settings.dragModel ?? DEFAULT_AERO.dragModel,
             criticalSpeed: settings.criticalSpeed ?? DEFAULT_AERO.criticalSpeed,
             knuckleStrength: settings.knuckleStrength ?? DEFAULT_AERO.knuckleStrength,
         },
@@ -450,7 +485,8 @@ export function createServe(settings) {
 }
 
 // Flight of the same serve without the knuckle force ("ghost"), and the knuckle drift: the largest
-// distance between the real ball and the ghost at the same moment.
+// distance between the real ball and the ghost at the same moment. The drift is null when either ball
+// touched the net tape, because the contact, not the knuckle, then decides the difference.
 export function predictFloat(settings, sampleEvery = 10) {
     const real = createServe(settings);
     const ghost = createServe({ ...settings, knuckleStrength: 0 });
@@ -465,5 +501,7 @@ export function predictFloat(settings, sampleEvery = 10) {
         }
         if (++steps % sampleEvery === 0 || ghost.finished) ghostPoints.push(ghost.position.clone());
     }
+    real.runToEnd();
+    if (real.touchedTape || ghost.touchedTape) drift = null;
     return { ghostPoints, drift };
 }

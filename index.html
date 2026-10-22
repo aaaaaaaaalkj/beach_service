@@ -73,13 +73,19 @@
             </div>
             <details id="aeroDetails">
                 <summary>Ball aerodynamics</summary>
-                <label for="dragCrisis">
-                    <input type="checkbox" id="dragCrisis" checked> Drag crisis
-                    <span class="hint">(drag drops above the critical speed)</span>
-                </label>
-                <div id="dragCrisisControls">
-                    <label for="criticalSpeed">Critical Speed: <span id="criticalSpeedValue" class="value-display">17.0 m/s</span></label>
-                    <input type="range" id="criticalSpeed" min="12" max="25" value="17" step="0.5">
+                <div class="inline-row">
+                    <label for="dragModel">Drag:</label>
+                    <select id="dragModel">
+                        <option value="vls300">Mikasa VLS 300 (beach, measured)</option>
+                        <option value="mva200">Mikasa MVA 200 (indoor, measured)</option>
+                        <option value="custom">Custom drag crisis</option>
+                        <option value="constant">Constant (Cd 0.45)</option>
+                    </select>
+                </div>
+                <div id="criticalSpeedControls" class="hidden">
+                    <label for="criticalSpeed">Critical Speed: <span id="criticalSpeedValue" class="value-display">12.0 m/s</span>
+                        <span class="hint">(drag drops above it)</span></label>
+                    <input type="range" id="criticalSpeed" min="8" max="25" value="12" step="0.5">
                 </div>
                 <label for="knuckleStrength">Knuckle Effect: <span id="knuckleStrengthValue" class="value-display">0.06</span>
                     <span class="hint">(side force without spin)</span></label>

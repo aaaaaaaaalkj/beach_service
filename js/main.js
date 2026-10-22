@@ -62,7 +62,7 @@ const inputs = {
     windEnabled: [$('enableWind'), 'checkbox'],
     windStrength: [$('windStrength'), 'number'],
     windDirection: [$('windDirection'), 'number'],
-    dragCrisis: [$('dragCrisis'), 'checkbox'],
+    dragModel: [$('dragModel'), 'text'],
     criticalSpeed: [$('criticalSpeed'), 'number'],
     knuckleStrength: [$('knuckleStrength'), 'number'],
     ballCam: [enableBallCamCheckbox, 'checkbox'],
@@ -107,6 +107,7 @@ function applySettings(settings) {
         else el.value = value;
     }
     if (inputs.launchPosition[0].value === '') inputs.launchPosition[0].value = 'center';
+    if (inputs.dragModel[0].value === '') inputs.dragModel[0].value = DEFAULT_AERO.dragModel;
 }
 
 function updateValueDisplays() {
@@ -123,7 +124,7 @@ function updateValueDisplays() {
     $('criticalSpeedValue').textContent = `${s.criticalSpeed.toFixed(1)} m/s`;
     $('knuckleStrengthValue').textContent = s.knuckleStrength.toFixed(2);
     windControlsDiv.classList.toggle('hidden', !s.windEnabled);
-    $('dragCrisisControls').classList.toggle('hidden', !s.dragCrisis);
+    $('criticalSpeedControls').classList.toggle('hidden', s.dragModel !== 'custom');
 }
 
 // --- UI state ---
@@ -157,8 +158,8 @@ function showResults(result, drift) {
     results.speedLabel.textContent = `${result ? result.speedLabel : 'Landing Speed'}:`;
     results.speed.textContent = result ? `${result.speed.toFixed(1)} m/s` : '- m/s';
     results.time.textContent = result ? `${result.time.toFixed(2)} s` : '- s';
-    results.difficulty.textContent = `${result ? difficultyScore({ ...result, drift }) : '-'} / 100`;
-    results.drift.textContent = result ? `${Math.round(drift * 100)} cm` : '- cm';
+    results.difficulty.textContent = `${result ? difficultyScore({ ...result, drift: drift ?? 0 }) : '-'} / 100`;
+    results.drift.textContent = !result ? '- cm' : drift === null ? 'n/a (net contact)' : `${Math.round(drift * 100)} cm`;
 }
 
 // Puts ball, net, wind and arrow into the pre-serve state for the current settings
@@ -240,7 +241,7 @@ function startFlight() {
 function endFlight() {
     trajectoryPoints.push(serve.position.clone());
     view.setTrajectory(trajectoryPoints);
-    if (prediction.drift >= 0.01) view.setGhostTrajectory(prediction.ghostPoints); // Only when the ball knuckled
+    if (prediction.drift === null || prediction.drift >= 0.01) view.setGhostTrajectory(prediction.ghostPoints); // Only when it differs
     showResults(serve.result, prediction.drift);
 
     if (serveUsesBallCam) {
@@ -388,6 +389,7 @@ function loadSlot(slot) {
     // Old saves without a contact height use the gender default
     const settings = { ...data.settings };
     settings.contactHeight ??= settings.gender === 'female' ? CONTACT_HEIGHT_WOMEN : CONTACT_HEIGHT_MEN;
+    if (settings.dragModel === undefined && settings.dragCrisis === false) settings.dragModel = 'constant';
     for (const [key, value] of Object.entries(DEFAULT_AERO)) settings[key] ??= value;
     settings.floatSeed ??= 1;
     applySettings(settings);
