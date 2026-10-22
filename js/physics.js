@@ -10,7 +10,15 @@ import {
 export const PHYSICS_DT = 0.001; // s
 export const MAX_FLIGHT_TIME = 10; // s, safety stop
 
-const DRAG_COEFFICIENT = 0.45; // Typical measured volleyball value at serve speeds (subcritical regime)
+// Air drag. Above a critical Reynolds number the boundary layer turns turbulent, separates later and
+// drag drops sharply ("drag crisis"). A float serve starts above and ends below it, so it brakes late.
+// The values are estimates for a volleyball; the critical speed depends on the ball's surface.
+const AIR_KINEMATIC_VISCOSITY = 1.5e-5; // m^2/s at ~20 °C
+const CONSTANT_DRAG_COEFFICIENT = 0.45; // Used when the drag crisis is switched off
+const DRAG_SUBCRITICAL = 0.5;           // Slow ball: laminar boundary layer
+const DRAG_SUPERCRITICAL = 0.2;         // Fast ball: turbulent boundary layer
+const DRAG_TRANSITION_WIDTH = 0.06;     // Width of the transition, relative to the critical Reynolds number
+export const DEFAULT_AERO = { dragCrisis: true, criticalSpeed: 17 }; // criticalSpeed in m/s
 
 // Net tape interaction
 const COR_NET_TAPE = 0.3;       // Coefficient of restitution of the tape (normal direction)
@@ -59,6 +67,18 @@ export function windVelocityFrom(enabled, speed, directionDeg) {
     return new Vector3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(speed);
 }
 
+export function reynoldsNumber(speed) {
+    return speed * 2 * BALL_RADIUS / AIR_KINEMATIC_VISCOSITY;
+}
+
+// Drag coefficient for the speed of the ball relative to the air
+export function dragCoefficient(relSpeed, aero = DEFAULT_AERO) {
+    if (!aero.dragCrisis) return CONSTANT_DRAG_COEFFICIENT;
+    const criticalRe = reynoldsNumber(aero.criticalSpeed);
+    const x = (reynoldsNumber(relSpeed) - criticalRe) / (DRAG_TRANSITION_WIDTH * criticalRe);
+    return DRAG_SUPERCRITICAL + (DRAG_SUBCRITICAL - DRAG_SUPERCRITICAL) / (1 + Math.exp(x));
+}
+
 // --- Classification and scoring ---
 
 // The ball is in when its contact point touches the court, lines included
@@ -91,13 +111,15 @@ export function difficultyScore({ classification, speed, time, position }) {
 // --- Simulation ---
 
 export class ServeSimulation {
-    // position/velocity: Vector3 at contact; spin: rev/s, positive = topspin; windVelocity: Vector3 (m/s)
-    constructor({ position, velocity, netHeight, windVelocity = new Vector3(), spin = 0 }) {
+    // position/velocity: Vector3 at contact; spin: rev/s, positive = topspin; windVelocity: Vector3 (m/s);
+    // aero: { dragCrisis, criticalSpeed }
+    constructor({ position, velocity, netHeight, windVelocity = new Vector3(), spin = 0, aero = DEFAULT_AERO }) {
         this.position = position.clone();
         this.prevPosition = position.clone();
         this.velocity = velocity.clone();
         this.netHeight = netHeight;
         this.windVelocity = windVelocity.clone();
+        this.aero = { ...DEFAULT_AERO, ...aero };
         this.time = 0;
 
         // Spin axis is horizontal and perpendicular to the serve direction:
@@ -158,7 +180,7 @@ export class ServeSimulation {
             const dynamicPressureArea = 0.5 * AIR_DENSITY * BALL_AREA * relSpeedSq;
 
             // Drag: opposite to the velocity relative to the air
-            out.addScaledVector(relVel, -DRAG_COEFFICIENT * dynamicPressureArea / relSpeed);
+            out.addScaledVector(relVel, -dragCoefficient(relSpeed, this.aero) * dynamicPressureArea / relSpeed);
 
             // Magnus: perpendicular to the spin axis and the relative velocity
             const spinRate = this.angularVelocity.length();
@@ -310,5 +332,9 @@ export function createServe(settings) {
         netHeight: netHeightFor(settings.gender),
         windVelocity: windVelocityFrom(settings.windEnabled, settings.windStrength, settings.windDirection),
         spin: settings.spin,
+        aero: {
+            dragCrisis: settings.dragCrisis ?? DEFAULT_AERO.dragCrisis,
+            criticalSpeed: settings.criticalSpeed ?? DEFAULT_AERO.criticalSpeed,
+        },
     });
 }

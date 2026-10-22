@@ -58,6 +58,17 @@
                 <label for="windDirection">Blowing Towards: <span id="windDirectionValue" class="value-display">0 °</span> <span class="hint">(0° = Net, 90° = Right)</span></label>
                 <input type="range" id="windDirection" min="0" max="359" value="0" step="1">
             </div>
+            <details id="aeroDetails">
+                <summary>Ball aerodynamics</summary>
+                <label for="dragCrisis">
+                    <input type="checkbox" id="dragCrisis" checked> Drag crisis
+                    <span class="hint">(drag drops above the critical speed)</span>
+                </label>
+                <div id="dragCrisisControls">
+                    <label for="criticalSpeed">Critical Speed: <span id="criticalSpeedValue" class="value-display">17.0 m/s</span></label>
+                    <input type="range" id="criticalSpeed" min="12" max="25" value="17" step="0.5">
+                </div>
+            </details>
         </fieldset>
 
         <fieldset id="cameraFieldset">

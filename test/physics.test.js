@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { ServeSimulation, createServe, classifyLanding, difficultyScore, netHeightFor } from '../js/physics.js';
+import { ServeSimulation, createServe, classifyLanding, difficultyScore, netHeightFor, dragCoefficient } from '../js/physics.js';
 import { COURT_WIDTH, COURT_LENGTH, BALL_RADIUS, NET_HEIGHT_MEN, ANTENNA_HEIGHT } from '../js/constants.js';
 
 const BASE = {
@@ -127,4 +127,27 @@ test('difficulty score', () => {
     const score = difficultyScore(result);
     assert.ok(score > 0 && score <= 100);
     assert.equal(difficultyScore({ ...result, classification: 'Out (Long)' }), 0);
+});
+
+test('drag crisis: drag coefficient drops above the critical speed', () => {
+    const aero = { dragCrisis: true, criticalSpeed: 17 };
+    assert.ok(Math.abs(dragCoefficient(5, aero) - 0.5) < 0.01);
+    assert.ok(Math.abs(dragCoefficient(30, aero) - 0.2) < 0.01);
+    assert.ok(Math.abs(dragCoefficient(17, aero) - 0.35) < 1e-9, 'midpoint at the critical speed');
+    for (let v = 1; v < 40; v++) assert.ok(dragCoefficient(v + 1, aero) <= dragCoefficient(v, aero));
+    assert.equal(dragCoefficient(25, { dragCrisis: false }), 0.45);
+});
+
+test('drag crisis: a fast float serve carries farther, then brakes harder', () => {
+    const settings = { launchSpeed: 19, verticalAngle: 8, contactHeight: 2.8 };
+    const withCrisis = serve({ ...settings, dragCrisis: true });
+    const constant = serve({ ...settings, dragCrisis: false });
+    // Early in the flight the supercritical ball has less drag than the constant-drag ball
+    for (let i = 0; i < 200; i++) { withCrisis.step(); constant.step(); }
+    assert.ok(withCrisis.velocity.length() > constant.velocity.length());
+    // Deceleration rises as the ball falls below the critical speed
+    const decel = sim => -sim.acceleration(sim.velocity, new Vector3()).dot(sim.velocity.clone().normalize());
+    const fast = serve({ ...settings, launchSpeed: 19 });
+    const slower = serve({ ...settings, launchSpeed: 16 });
+    assert.ok(decel(slower) > decel(fast), 'a 16 m/s ball brakes harder than a 19 m/s ball');
 });

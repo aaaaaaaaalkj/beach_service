@@ -49,6 +49,8 @@ input[type="radio"] + label { display: inline; font-weight: normal; margin-right
 .inline-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .inline-row select { flex-grow: 1; margin-bottom: 0; }
 #ballCamOption label { display: inline; font-weight: normal; }
+details { margin-top: 4px; }
+details summary { cursor: pointer; font-size: 0.85em; color: #333; margin-bottom: 4px; }
 
 /* --- Results --- */
 #results {

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { COURT_LENGTH, COURT_WIDTH, POLE_DISTANCE, CONTACT_HEIGHT_MEN, CONTACT_HEIGHT_WOMEN } from './constants.js';
 import {
-    createServe, servePosition, launchDirection, netHeightFor, windVelocityFrom, difficultyScore,
+    createServe, servePosition, launchDirection, netHeightFor, windVelocityFrom, difficultyScore, DEFAULT_AERO,
 } from './physics.js';
 import { createBeachScene } from './scene.js';
 
@@ -58,6 +58,8 @@ const inputs = {
     windEnabled: [$('enableWind'), 'checkbox'],
     windStrength: [$('windStrength'), 'number'],
     windDirection: [$('windDirection'), 'number'],
+    dragCrisis: [$('dragCrisis'), 'checkbox'],
+    criticalSpeed: [$('criticalSpeed'), 'number'],
     ballCam: [enableBallCamCheckbox, 'checkbox'],
 };
 const genderMaleRadio = $('genderMale');
@@ -111,7 +113,9 @@ function updateValueDisplays() {
     $('spinValue').textContent = `${Math.abs(s.spin).toFixed(1)} rev/s (${spinType})`;
     $('windStrengthValue').textContent = `${s.windStrength.toFixed(1)} m/s`;
     $('windDirectionValue').textContent = `${s.windDirection} °`;
+    $('criticalSpeedValue').textContent = `${s.criticalSpeed.toFixed(1)} m/s`;
     windControlsDiv.classList.toggle('hidden', !s.windEnabled);
+    $('dragCrisisControls').classList.toggle('hidden', !s.dragCrisis);
 }
 
 // --- UI state ---
@@ -358,6 +362,7 @@ function loadSlot(slot) {
     // Old saves without a contact height use the gender default
     const settings = { ...data.settings };
     settings.contactHeight ??= settings.gender === 'female' ? CONTACT_HEIGHT_WOMEN : CONTACT_HEIGHT_MEN;
+    for (const [key, value] of Object.entries(DEFAULT_AERO)) settings[key] ??= value;
     applySettings(settings);
     handleSettingsChange();
 

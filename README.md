@@ -29,7 +29,9 @@ An internet connection is required: Three.js is loaded from unpkg (pinned to 0.1
 
 - Coordinates: +X towards the net / opponent, +Y up, +Z to the server's right. The net is in the plane x = 0.
 - The simulation uses a fixed 1 ms time step, so results do not depend on the display's frame rate.
-- Drag coefficient 0.45 (constant; the drag crisis of float serves is not modelled).
+- Drag crisis: the drag coefficient depends on the Reynolds number, about 0.5 below and 0.2 above a critical
+  speed (default 17 m/s, adjustable under "Ball aerodynamics"; it depends on the ball's surface). These are
+  estimates for a volleyball, not measurements of a beach ball. With the drag crisis off, Cd is a constant 0.45.
 - Magnus lift coefficient uses the empirical sphere fit `C_L = 1 / (2 + 1/S)` with spin parameter `S = Rω / v`.
 - A ball is **in** when its contact point touches the court, lines included.
 - The ball must cross the net between the antennas (and their imaginary extension upwards) and above the net.
